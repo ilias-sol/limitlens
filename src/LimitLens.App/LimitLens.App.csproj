@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <RootNamespace>LimitLens.App</RootNamespace>
+    <AssemblyName>LimitLens</AssemblyName>
+    <Product>Limit Lens</Product>
+    <AssemblyTitle>Limit Lens</AssemblyTitle>
+    <Description>Privacy-first Codex limit indicator integrated into the Windows taskbar.</Description>
+    <Company>Limit Lens contributors</Company>
+    <VersionPrefix>0.1.0</VersionPrefix>
+    <Copyright>Copyright © 2026 Limit Lens contributors</Copyright>
+    <ApplicationIcon>Assets\LimitLens.ico</ApplicationIcon>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Platforms>x64</Platforms>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <WindowsPackageType>None</WindowsPackageType>
+    <DefaultLanguage>en-US</DefaultLanguage>
+    <NeutralLanguage>en-US</NeutralLanguage>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Release'">
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <PublishTrimmed>false</PublishTrimmed>
+    <PublishReadyToRun>false</PublishReadyToRun>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <DebugType>embedded</DebugType>
+  </PropertyGroup>
+  <ItemGroup>
+    <Resource Include="Assets\LimitLens.ico" />
+    <ProjectReference Include="../LimitLens.Core/LimitLens.Core.csproj" />
+    <ProjectReference Include="../LimitLens.Indexing/LimitLens.Indexing.csproj" />
+  </ItemGroup>
+</Project>

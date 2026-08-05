@@ -1,0 +1,21 @@
+<Application x:Class="LimitLens.App.App"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:converters="clr-namespace:LimitLens.App.Converters"
+             ShutdownMode="OnExplicitShutdown"
+             ThemeMode="Light">
+    <Application.Resources>
+        <ResourceDictionary>
+            <ResourceDictionary.MergedDictionaries>
+                <ResourceDictionary Source="/PresentationFramework.Fluent;component/Themes/Fluent.xaml" />
+                <ResourceDictionary Source="Resources/Theme.xaml" />
+            </ResourceDictionary.MergedDictionaries>
+            <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
+            <converters:InverseBooleanConverter x:Key="InverseBooleanConverter" />
+            <converters:NullToVisibilityConverter x:Key="NullToVisibilityConverter" />
+            <converters:StringEqualsVisibilityConverter x:Key="StringEqualsVisibilityConverter" />
+            <converters:ThemeNameConverter x:Key="ThemeNameConverter" />
+            <converters:UsageRemainingBrushConverter x:Key="UsageRemainingBrushConverter" />
+        </ResourceDictionary>
+    </Application.Resources>
+</Application>

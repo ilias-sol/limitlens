@@ -1,0 +1,10 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/LimitLens.Core/LimitLens.Core.csproj" />
+    <Project Path="src/LimitLens.Indexing/LimitLens.Indexing.csproj" />
+    <Project Path="src/LimitLens.App/LimitLens.App.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/LimitLens.Tests/LimitLens.Tests.csproj" />
+  </Folder>
+</Solution>

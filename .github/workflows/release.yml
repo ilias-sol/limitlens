@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version without the v prefix
+        required: true
+        default: 0.1.0
+
+permissions:
+  contents: write
+
+jobs:
+  package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Privacy and credential audit
+        shell: pwsh
+        run: ./scripts/audit-release.ps1 -IncludeGitMetadata
+      - uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 10.0.x
+          cache: true
+          cache-dependency-path: '**/packages.lock.json'
+      - name: Resolve version
+        id: version
+        shell: pwsh
+        run: |
+          $version = '${{ inputs.version }}'
+          if (-not $version) { $version = '${{ github.ref_name }}'.TrimStart('v') }
+          "value=$version" >> $env:GITHUB_OUTPUT
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Locked restore and dependency audit
+        run: dotnet restore LimitLens.slnx --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
+      - name: Build, test, and package
+        shell: pwsh
+        run: ./scripts/build-release.ps1 -Version '${{ steps.version.outputs.value }}'
+      - name: Verify checksums
+        shell: pwsh
+        run: |
+          Get-Content ./artifacts/release/SHA256SUMS.txt
+          $expected = @(
+            "LimitLens-Setup-${{ steps.version.outputs.value }}-win-x64.exe",
+            "LimitLens-${{ steps.version.outputs.value }}-portable-win-x64.zip",
+            "LimitLens-${{ steps.version.outputs.value }}-showcase-win-x64.zip",
+            'SHA256SUMS.txt'
+          )
+          foreach ($name in $expected) {
+            if (-not (Test-Path -LiteralPath (Join-Path ./artifacts/release $name))) {
+              throw "Missing release artifact: $name"
+            }
+          }
+          ./scripts/verify-release.ps1 -ReleaseDirectory ./artifacts/release -Version '${{ steps.version.outputs.value }}'
+      - uses: actions/upload-artifact@v4
+        with:
+          name: LimitLens-${{ steps.version.outputs.value }}-win-x64
+          path: |
+            artifacts/release/LimitLens-Setup-${{ steps.version.outputs.value }}-win-x64.exe
+            artifacts/release/LimitLens-${{ steps.version.outputs.value }}-portable-win-x64.zip
+            artifacts/release/LimitLens-${{ steps.version.outputs.value }}-showcase-win-x64.zip
+            artifacts/release/SHA256SUMS.txt
+      - uses: softprops/action-gh-release@v2
+        if: startsWith(github.ref, 'refs/tags/')
+        with:
+          draft: true
+          generate_release_notes: true
+          files: |
+            artifacts/release/LimitLens-Setup-${{ steps.version.outputs.value }}-win-x64.exe
+            artifacts/release/LimitLens-${{ steps.version.outputs.value }}-portable-win-x64.zip
+            artifacts/release/LimitLens-${{ steps.version.outputs.value }}-showcase-win-x64.zip
+            artifacts/release/SHA256SUMS.txt
