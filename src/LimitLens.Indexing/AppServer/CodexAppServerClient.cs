@@ -19,6 +19,7 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexApp
     private readonly SemaphoreSlim writeGate = new(1, 1);
     private readonly SemaphoreSlim refreshGate = new(1, 1);
     private readonly SemaphoreSlim reconnectSignal = new(0, 1);
+    private readonly object stateGate = new();
     private readonly Dictionary<string, RateLimitBucket> rateLimits = new(StringComparer.Ordinal);
     private readonly Dictionary<string, JsonElement> extensions = new(StringComparer.Ordinal);
     private Process? process;
@@ -29,6 +30,7 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexApp
     private AccountUsageSummary accountSummary = new();
     private IReadOnlyList<DailyTokenUsage> dailyUsage = [];
     private ResetCreditSummary? resetCredits;
+    private bool accountAvailable;
     private bool disposed;
 
     public AccountUsageSnapshot Current { get; private set; } = AccountUsageSnapshot.Empty;
@@ -348,17 +350,28 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexApp
         if (method == "account/rateLimits/updated" &&
             parameters.TryGetProperty("rateLimits", out var rateLimitElement))
         {
-            var update = ParseRateLimit(rateLimitElement, null);
-            if (rateLimits.TryGetValue(update.Id, out var existing))
+            AccountUsageSnapshot snapshot;
+            lock (stateGate)
             {
-                rateLimits[update.Id] = existing.MergeSparse(update);
-            }
-            else
-            {
-                rateLimits[update.Id] = update;
+                if (!accountAvailable)
+                {
+                    return;
+                }
+
+                var update = ParseRateLimit(rateLimitElement, null);
+                if (rateLimits.TryGetValue(update.Id, out var existing))
+                {
+                    rateLimits[update.Id] = existing.MergeSparse(update);
+                }
+                else
+                {
+                    rateLimits[update.Id] = update;
+                }
+
+                snapshot = CreateSnapshotLocked();
             }
 
-            PublishSnapshot();
+            SnapshotChanged?.Invoke(snapshot);
         }
     }
 
@@ -366,106 +379,117 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexApp
     {
         if (!result.TryGetProperty("account", out var account) || account.ValueKind == JsonValueKind.Null)
         {
+            ClearAccountState();
             SetHealth(new SourceHealth(
                 SourceConnectionState.SignedOut,
                 "Sign in to Codex to see account limits. Local analytics are available.",
                 Health.LastSuccessfulUpdate));
-            planType = null;
             return false;
         }
 
         var accountType = ReadString(account, "type");
         if (accountType == "apiKey")
         {
+            ClearAccountState();
             SetHealth(new SourceHealth(
                 SourceConnectionState.LocalOnly,
                 "API-key mode does not expose ChatGPT account limits.",
                 Health.LastSuccessfulUpdate));
-            planType = null;
             return false;
         }
 
         if (accountType != "chatgpt")
         {
+            ClearAccountState();
             SetHealth(new SourceHealth(
                 SourceConnectionState.LocalOnly,
                 "This Codex authentication mode does not expose account usage.",
                 Health.LastSuccessfulUpdate));
-            planType = null;
             return false;
         }
 
-        planType = ReadString(account, "planType");
+        lock (stateGate)
+        {
+            accountAvailable = true;
+            planType = ReadString(account, "planType");
+        }
+
         return true;
     }
 
     private void ApplyUsage(JsonElement result)
     {
-        ReplaceExtensions(
-            "usage.",
-            CaptureUnknown(result, "summary", "dailyUsageBuckets"));
-        if (result.TryGetProperty("summary", out var summary))
+        lock (stateGate)
         {
-            accountSummary = new AccountUsageSummary(
-                ReadInt64(summary, "lifetimeTokens"),
-                ReadInt64(summary, "peakDailyTokens"),
-                ReadInt64(summary, "currentStreakDays"),
-                ReadInt64(summary, "longestStreakDays"),
-                ReadInt64(summary, "longestRunningTurnSec"));
-        }
+            ReplaceExtensions(
+                "usage.",
+                CaptureUnknown(result, "summary", "dailyUsageBuckets"));
+            if (result.TryGetProperty("summary", out var summary))
+            {
+                accountSummary = new AccountUsageSummary(
+                    ReadInt64(summary, "lifetimeTokens"),
+                    ReadInt64(summary, "peakDailyTokens"),
+                    ReadInt64(summary, "currentStreakDays"),
+                    ReadInt64(summary, "longestStreakDays"),
+                    ReadInt64(summary, "longestRunningTurnSec"));
+            }
 
-        if (result.TryGetProperty("dailyUsageBuckets", out var buckets) &&
-            buckets.ValueKind == JsonValueKind.Array)
-        {
-            dailyUsage = buckets.EnumerateArray()
-                .Select(bucket =>
-                {
-                    var dateText = ReadString(bucket, "startDate");
-                    return DateOnly.TryParse(
-                        dateText,
-                        CultureInfo.InvariantCulture,
-                        DateTimeStyles.None,
-                        out var date)
-                        ? new DailyTokenUsage(date, ReadInt64(bucket, "tokens") ?? 0)
-                        : null;
-                })
-                .Where(bucket => bucket is not null)
-                .Cast<DailyTokenUsage>()
-                .OrderBy(bucket => bucket.Date)
-                .ToArray();
+            if (result.TryGetProperty("dailyUsageBuckets", out var buckets) &&
+                buckets.ValueKind == JsonValueKind.Array)
+            {
+                dailyUsage = buckets.EnumerateArray()
+                    .Select(bucket =>
+                    {
+                        var dateText = ReadString(bucket, "startDate");
+                        return DateOnly.TryParse(
+                            dateText,
+                            CultureInfo.InvariantCulture,
+                            DateTimeStyles.None,
+                            out var date)
+                            ? new DailyTokenUsage(date, ReadInt64(bucket, "tokens") ?? 0)
+                            : null;
+                    })
+                    .Where(bucket => bucket is not null)
+                    .Cast<DailyTokenUsage>()
+                    .OrderBy(bucket => bucket.Date)
+                    .ToArray();
+            }
         }
     }
 
     private void ApplyRateLimits(JsonElement result)
     {
-        ReplaceExtensions(
-            "rateLimits.",
-            CaptureUnknown(result, "rateLimitsByLimitId", "rateLimits", "rateLimitResetCredits"));
-        rateLimits.Clear();
-        if (result.TryGetProperty("rateLimitsByLimitId", out var byId) &&
-            byId.ValueKind == JsonValueKind.Object)
+        lock (stateGate)
         {
-            foreach (var property in byId.EnumerateObject())
+            ReplaceExtensions(
+                "rateLimits.",
+                CaptureUnknown(result, "rateLimitsByLimitId", "rateLimits", "rateLimitResetCredits"));
+            rateLimits.Clear();
+            if (result.TryGetProperty("rateLimitsByLimitId", out var byId) &&
+                byId.ValueKind == JsonValueKind.Object)
             {
-                var bucket = ParseRateLimit(property.Value, property.Name);
+                foreach (var property in byId.EnumerateObject())
+                {
+                    var bucket = ParseRateLimit(property.Value, property.Name);
+                    rateLimits[bucket.Id] = bucket;
+                }
+            }
+
+            if (rateLimits.Count == 0 && result.TryGetProperty("rateLimits", out var fallback))
+            {
+                var bucket = ParseRateLimit(fallback, "codex");
                 rateLimits[bucket.Id] = bucket;
             }
-        }
 
-        if (rateLimits.Count == 0 && result.TryGetProperty("rateLimits", out var fallback))
-        {
-            var bucket = ParseRateLimit(fallback, "codex");
-            rateLimits[bucket.Id] = bucket;
-        }
-
-        if (result.TryGetProperty("rateLimitResetCredits", out var credits) &&
-            credits.ValueKind == JsonValueKind.Object)
-        {
-            resetCredits = new ResetCreditSummary((int)(ReadInt64(credits, "availableCount") ?? 0));
-        }
-        else
-        {
-            resetCredits = null;
+            if (result.TryGetProperty("rateLimitResetCredits", out var credits) &&
+                credits.ValueKind == JsonValueKind.Object)
+            {
+                resetCredits = new ResetCreditSummary((int)(ReadInt64(credits, "availableCount") ?? 0));
+            }
+            else
+            {
+                resetCredits = null;
+            }
         }
     }
 
@@ -543,6 +567,17 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexApp
 
     private void PublishSnapshot()
     {
+        AccountUsageSnapshot snapshot;
+        lock (stateGate)
+        {
+            snapshot = CreateSnapshotLocked();
+        }
+
+        SnapshotChanged?.Invoke(snapshot);
+    }
+
+    private AccountUsageSnapshot CreateSnapshotLocked()
+    {
         Current = new AccountUsageSnapshot(
             planType,
             accountSummary,
@@ -551,7 +586,21 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexApp
             resetCredits,
             DateTimeOffset.Now,
             new Dictionary<string, JsonElement>(extensions, StringComparer.Ordinal));
-        SnapshotChanged?.Invoke(Current);
+        return Current;
+    }
+
+    private void ClearAccountState()
+    {
+        lock (stateGate)
+        {
+            accountAvailable = false;
+            planType = null;
+            accountSummary = new AccountUsageSummary();
+            dailyUsage = [];
+            rateLimits.Clear();
+            resetCredits = null;
+            extensions.Clear();
+        }
     }
 
     private void ReplaceExtensions(

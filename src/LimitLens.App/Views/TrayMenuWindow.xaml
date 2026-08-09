@@ -38,7 +38,8 @@
                                 CornerRadius="7"
                                 Padding="{TemplateBinding Padding}">
                             <ContentPresenter HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}"
+                                              TextElement.Foreground="{DynamicResource TrayMenuTextBrush}" />
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
@@ -61,12 +62,18 @@
             CornerRadius="11"
             Padding="5">
         <StackPanel>
-            <Button Content="Open usage" Click="OpenUsage_Click" />
-            <Button Content="Settings" Click="Settings_Click" />
+            <Button x:Name="OpenUsageButton" Click="OpenUsage_Click">
+                <TextBlock Text="Open usage" Foreground="{DynamicResource TrayMenuTextBrush}" />
+            </Button>
+            <Button x:Name="SettingsMenuButton" Click="Settings_Click">
+                <TextBlock Text="Settings" Foreground="{DynamicResource TrayMenuTextBrush}" />
+            </Button>
             <Border Height="1"
                     Margin="5,5"
                     Background="{DynamicResource TrayMenuSeparatorBrush}" />
-            <Button Content="Quit Limit Lens" Click="Quit_Click" />
+            <Button x:Name="QuitButton" Click="Quit_Click">
+                <TextBlock Text="Quit Limit Lens" Foreground="{DynamicResource TrayMenuTextBrush}" />
+            </Button>
         </StackPanel>
     </Border>
 </Window>

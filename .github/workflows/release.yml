@@ -11,17 +11,19 @@ on:
         default: 0.1.0
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   package:
     runs-on: windows-latest
+    outputs:
+      version: ${{ steps.version.outputs.value }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - name: Privacy and credential audit
         shell: pwsh
         run: ./scripts/audit-release.ps1 -IncludeGitMetadata
-      - uses: actions/setup-dotnet@v5
+      - uses: actions/setup-dotnet@d4c94342e560b34958eacfc5d055d21461ed1c5d # v5.0.0
         with:
           dotnet-version: 10.0.x
           cache: true
@@ -29,25 +31,34 @@ jobs:
       - name: Resolve version
         id: version
         shell: pwsh
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          REF_NAME: ${{ github.ref_name }}
         run: |
-          $version = '${{ inputs.version }}'
-          if (-not $version) { $version = '${{ github.ref_name }}'.TrimStart('v') }
+          $version = $env:INPUT_VERSION
+          if (-not $version) { $version = $env:REF_NAME.TrimStart('v') }
+          if ($version -notmatch '^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$') {
+            throw "Invalid release version: $version"
+          }
           "value=$version" >> $env:GITHUB_OUTPUT
       - name: Install Inno Setup
-        run: choco install innosetup --no-progress -y
+        run: choco install innosetup --version=6.7.3 --allow-downgrade --no-progress -y
       - name: Locked restore and dependency audit
         run: dotnet restore LimitLens.slnx --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
       - name: Build, test, and package
         shell: pwsh
-        run: ./scripts/build-release.ps1 -Version '${{ steps.version.outputs.value }}'
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
+        run: ./scripts/build-release.ps1 -Version $env:RELEASE_VERSION
       - name: Verify checksums
         shell: pwsh
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.value }}
         run: |
           Get-Content ./artifacts/release/SHA256SUMS.txt
           $expected = @(
-            "LimitLens-Setup-${{ steps.version.outputs.value }}-win-x64.exe",
-            "LimitLens-${{ steps.version.outputs.value }}-portable-win-x64.zip",
-            "LimitLens-${{ steps.version.outputs.value }}-showcase-win-x64.zip",
+            "LimitLens-Setup-$env:RELEASE_VERSION-win-x64.exe",
+            "LimitLens-$env:RELEASE_VERSION-portable-win-x64.zip",
             'SHA256SUMS.txt'
           )
           foreach ($name in $expected) {
@@ -55,22 +66,31 @@ jobs:
               throw "Missing release artifact: $name"
             }
           }
-          ./scripts/verify-release.ps1 -ReleaseDirectory ./artifacts/release -Version '${{ steps.version.outputs.value }}'
-      - uses: actions/upload-artifact@v4
+          ./scripts/verify-release.ps1 -ReleaseDirectory ./artifacts/release -Version $env:RELEASE_VERSION
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: LimitLens-${{ steps.version.outputs.value }}-win-x64
           path: |
             artifacts/release/LimitLens-Setup-${{ steps.version.outputs.value }}-win-x64.exe
             artifacts/release/LimitLens-${{ steps.version.outputs.value }}-portable-win-x64.zip
-            artifacts/release/LimitLens-${{ steps.version.outputs.value }}-showcase-win-x64.zip
             artifacts/release/SHA256SUMS.txt
-      - uses: softprops/action-gh-release@v2
-        if: startsWith(github.ref, 'refs/tags/')
+
+  publish:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: package
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: LimitLens-${{ needs.package.outputs.version }}-win-x64
+          path: artifacts/release
+      - uses: softprops/action-gh-release@72f2c25fcb47643c292f7107632f7a47c1df5cd8 # v2.3.2
         with:
           draft: true
           generate_release_notes: true
           files: |
-            artifacts/release/LimitLens-Setup-${{ steps.version.outputs.value }}-win-x64.exe
-            artifacts/release/LimitLens-${{ steps.version.outputs.value }}-portable-win-x64.zip
-            artifacts/release/LimitLens-${{ steps.version.outputs.value }}-showcase-win-x64.zip
+            artifacts/release/LimitLens-Setup-${{ needs.package.outputs.version }}-win-x64.exe
+            artifacts/release/LimitLens-${{ needs.package.outputs.version }}-portable-win-x64.zip
             artifacts/release/SHA256SUMS.txt

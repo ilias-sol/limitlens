@@ -2,9 +2,13 @@
 
 All notable changes to Limit Lens are documented here.
 
-## 0.1.0
+## Unreleased
+
+## 0.1.0 - 2026-08-09
 
 Initial public release.
+
+### Added
 
 - Native Windows taskbar usage indicator
 - Compact light and dark usage flyout
@@ -12,4 +16,11 @@ Initial public release.
 - Reset countdown, available credits, and reset credits
 - Configurable usage alerts and Windows startup
 - Portable and per-user installer distributions
-- Privacy-safe local indexing with no prompt or response storage
+- Privacy-minimized local indexing with no prompt or response persistence
+
+### Security
+
+- Full-tree and reachable-history credential audit
+- Private build-path detection inside .NET single-file bundles
+- Temporary release staging that cannot retain local portable data
+- Isolated showcase mode that does not read local Codex sessions

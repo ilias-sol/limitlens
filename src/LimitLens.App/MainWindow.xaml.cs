@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Media;
 using System.Windows.Threading;
 using LimitLens.App.Services;
+using LimitLens.App.Taskbar;
 using LimitLens.App.ViewModels;
 using LimitLens.Core.Settings;
 using FormsScreen = System.Windows.Forms.Screen;
@@ -12,6 +13,9 @@ namespace LimitLens.App;
 
 public partial class MainWindow : Window
 {
+    private const double FlyoutMargin = 8;
+    private const uint SwpNoActivate = 0x0010;
+    private const uint SwpNoZOrder = 0x0004;
     private readonly DashboardViewModel viewModel;
     private readonly System.Windows.Threading.DispatcherTimer clockTimer;
     private readonly System.Windows.Threading.DispatcherTimer outsideClickTimer;
@@ -42,6 +46,8 @@ public partial class MainWindow : Window
         SourceInitialized += (_, _) => ApplyNativeAppearance();
         Activated += (_, _) => ScheduleNativeAppearance();
         Closing += OnClosing;
+        Closed += (_, _) => Microsoft.Win32.SystemEvents.DisplaySettingsChanged -= OnDisplaySettingsChanged;
+        Microsoft.Win32.SystemEvents.DisplaySettingsChanged += OnDisplaySettingsChanged;
         IsVisibleChanged += (_, _) =>
         {
             if (IsVisible)
@@ -86,43 +92,59 @@ public partial class MainWindow : Window
 
     private void PositionAtTaskbar()
     {
-        if (taskbarAnchor.IsEmpty) return;
-        var screen = FormsScreen.FromRectangle(new System.Drawing.Rectangle(
-            (int)taskbarAnchor.X,
-            (int)taskbarAnchor.Y,
-            Math.Max(1, (int)taskbarAnchor.Width),
-            Math.Max(1, (int)taskbarAnchor.Height)));
-        var dpi = VisualTreeHelper.GetDpi(this);
-        var work = screen.WorkingArea;
-        var anchorLeft = taskbarAnchor.Left / dpi.DpiScaleX;
-        var anchorRight = taskbarAnchor.Right / dpi.DpiScaleX;
-        var anchorTop = taskbarAnchor.Top / dpi.DpiScaleY;
-        var anchorBottom = taskbarAnchor.Bottom / dpi.DpiScaleY;
-        var workLeft = work.Left / dpi.DpiScaleX;
-        var workRight = work.Right / dpi.DpiScaleX;
-        var workTop = work.Top / dpi.DpiScaleY;
-        var workBottom = work.Bottom / dpi.DpiScaleY;
+        var screen = taskbarAnchor.IsEmpty
+            ? FormsScreen.PrimaryScreen ?? FormsScreen.AllScreens.First()
+            : FormsScreen.FromRectangle(new System.Drawing.Rectangle(
+                (int)taskbarAnchor.X,
+                (int)taskbarAnchor.Y,
+                Math.Max(1, (int)taskbarAnchor.Width),
+                Math.Max(1, (int)taskbarAnchor.Height)));
+        var handle = new System.Windows.Interop.WindowInteropHelper(this).Handle;
+        if (handle == IntPtr.Zero) return;
 
-        Left = Math.Clamp(anchorRight - ActualWidth, workLeft + 6, Math.Max(workLeft + 6, workRight - ActualWidth - 6));
-        if (anchorTop >= workBottom - 4)
-        {
-            Top = anchorTop - ActualHeight - 8;
-        }
-        else if (anchorBottom <= workTop + 4)
-        {
-            Top = anchorBottom + 8;
-        }
-        else
-        {
-            Top = Math.Clamp(anchorTop - ActualHeight - 8, workTop + 6, Math.Max(workTop + 6, workBottom - ActualHeight - 6));
-            Left = anchorLeft >= workRight - 4 ? anchorLeft - ActualWidth - 8 : anchorRight + 8;
-        }
+        var dpi = GetDpiForWindow(handle);
+        if (dpi == 0) dpi = 96;
+        var scale = dpi / 96d;
+        var work = screen.WorkingArea;
+        var width = Math.Min(work.Width, (int)Math.Ceiling(ActualWidth * scale));
+        var height = Math.Min(work.Height, (int)Math.Ceiling(ActualHeight * scale));
+        var margin = (int)Math.Ceiling(FlyoutMargin * scale);
+        var anchor = taskbarAnchor.IsEmpty
+            ? System.Drawing.Rectangle.Empty
+            : new System.Drawing.Rectangle(
+                (int)taskbarAnchor.X,
+                (int)taskbarAnchor.Y,
+                Math.Max(1, (int)taskbarAnchor.Width),
+                Math.Max(1, (int)taskbarAnchor.Height));
+        var bounds = TaskbarPlacement.FlyoutBounds(
+            work,
+            anchor,
+            new System.Drawing.Size(width, height),
+            viewModel.SelectedFlyoutPosition,
+            margin);
+
+        // Screen.WorkingArea and SetWindowPos both use physical pixels. Keeping this calculation
+        // entirely in that coordinate space avoids WPF logical-pixel drift at 125%/150% scaling.
+        _ = SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            bounds.Left,
+            bounds.Top,
+            bounds.Width,
+            bounds.Height,
+            SwpNoActivate | SwpNoZOrder);
     }
 
     private void OnAppearanceChanged()
     {
         ApplyAppearance();
     }
+
+    private void OnDisplaySettingsChanged(object? sender, EventArgs args) =>
+        _ = Dispatcher.BeginInvoke(DispatcherPriority.Loaded, () =>
+        {
+            if (IsVisible) PositionAtTaskbar();
+        });
 
     private void ApplyAppearance()
     {
@@ -161,10 +183,10 @@ public partial class MainWindow : Window
 
     private void ApplyFlyoutPalette(bool light)
     {
-        SetFlyoutBrush("FlyoutSurface", light ? "#8AF3F4F5" : "#8A1A1D22");
-        SetFlyoutBrush("FlyoutLayer", light ? "#4AFFFFFF" : "#4A39434C");
-        SetFlyoutBrush("FlyoutLayerStrong", light ? "#62FFFFFF" : "#623D4750");
-        SetFlyoutBrush("FlyoutInsight", light ? "#66FFFFFF" : "#66282C33");
+        SetFlyoutBrush("FlyoutSurface", light ? "#A4F3F4F5" : "#A41A1D22");
+        SetFlyoutBrush("FlyoutLayer", light ? "#64FFFFFF" : "#6439434C");
+        SetFlyoutBrush("FlyoutLayerStrong", light ? "#7CFFFFFF" : "#7C3D4750");
+        SetFlyoutBrush("FlyoutInsight", light ? "#80FFFFFF" : "#80282C33");
         SetFlyoutBrush("FlyoutBorder", light ? "#18000000" : "#18FFFFFF");
         SetFlyoutBrush("FlyoutDivider", light ? "#12000000" : "#12FFFFFF");
         SetFlyoutBrush("FlyoutText", light ? "#FF252932" : "#FFF4F5F7");
@@ -187,7 +209,7 @@ public partial class MainWindow : Window
     private void UpdateFlyoutHeight()
     {
         var height = viewModel.ShowWidgetSettings
-            ? 350
+            ? 420
             : 484;
         Height = MinHeight = MaxHeight = height;
         if (IsVisible) PositionAtTaskbar();
@@ -241,4 +263,11 @@ public partial class MainWindow : Window
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool SetForegroundWindow(IntPtr window);
+
+    [DllImport("user32.dll")]
+    private static extern uint GetDpiForWindow(IntPtr window);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    private static extern bool SetWindowPos(IntPtr window, IntPtr insertAfter, int x, int y, int width, int height, uint flags);
 }

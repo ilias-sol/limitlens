@@ -1,50 +1,72 @@
 # Privacy
 
-Limit Lens is a local dashboard. It has no telemetry service and
-does not upload your Codex history.
+Limit Lens is a local dashboard. Limit Lens does not operate a telemetry
+service and does not upload your Codex history.
 
 ## Inputs
 
 The application uses two read-only sources:
 
 1. `codex app-server` for supported account usage and rate-limit snapshots.
-2. JSONL metadata under the selected Codex home `sessions` and
+2. JSONL records under the selected Codex home `sessions` and
    `archived_sessions` folders.
 
-It opens session files with shared read/delete access, tolerates partial lines,
-and never modifies the Codex home directory.
+The JSONL reader necessarily reads each completed record into memory. The
+parser extracts only the metadata described below and discards the record. It
+does not extract, index, log, or persist prompt text, response text, command
+text, tool arguments, or workspace file contents.
+
+Session files are opened with shared read/delete access. Limit Lens tolerates
+partial lines and never modifies the Codex home directory.
 
 ## Retained locally
 
-The app's own SQLite database retains only:
+The app's SQLite database retains:
 
+- session and turn identifiers;
 - token counts by type;
 - timestamps and daily buckets;
 - model names;
 - task outcome, duration, and time to first token;
-- project basename and a salted, non-reversible path identifier;
+- project basename and a salted pseudonymous path identifier;
 - broad tool categories such as shell, patch, web, browser, or connector; and
-- relative scan checkpoints needed for incremental indexing.
+- filename-only scan checkpoints needed for incremental indexing.
 
-Installed mode stores this database and versioned JSON settings under
+Project basenames, timestamps, and usage patterns can still be sensitive even
+though prompts and full project paths are excluded. Do not publish or share the
+database unless you intend to disclose that metadata.
+
+The JSON settings file can retain:
+
+- user-selected Codex home and executable paths;
+- window and monitor placement;
+- appearance, startup, card, and alert preferences;
+- rate-limit usage history and alert deduplication state; and
+- the random salt used for pseudonymous project identifiers.
+
+Installed mode stores the database and settings under
 `%LOCALAPPDATA%\LimitLens`. Portable mode uses a neighboring `Data` folder.
 Settings are written with atomic replacement.
 
+Showcase mode uses synthetic account values, an in-memory settings store, and
+a no-op local indexer. It does not read local Codex sessions or create a local
+Limit Lens data directory.
+
 ## Explicit exclusions
 
-Limit Lens deliberately does not read or retain:
+Limit Lens does not extract or retain:
 
 - prompt or response text;
 - command text;
 - tool arguments;
 - workspace file contents;
-- full project paths;
+- full project paths from session records;
 - `auth.json`; or
 - Codex-owned SQLite databases.
 
-The app-server child process is started directly without a shell. Its stderr is
-drained without being stored or displayed because diagnostics can contain
-sensitive context.
+The app-server child process is started directly without a shell. Limit Lens
+does not open or copy Codex credentials. Its stderr is drained without being
+stored or displayed because diagnostics can contain sensitive context.
 
 ## Account and device separation
 

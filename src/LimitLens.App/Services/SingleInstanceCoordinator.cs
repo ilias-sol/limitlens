@@ -1,5 +1,6 @@
 using System.IO;
 using System.IO.Pipes;
+using System.Security.Cryptography;
 using System.Text;
 
 namespace LimitLens.App.Services;
@@ -23,6 +24,14 @@ public sealed class SingleInstanceCoordinator : IDisposable
     }
 
     public bool IsPrimary { get; }
+
+    internal static string PortableInstanceName(string executableDirectory)
+    {
+        var normalizedPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(executableDirectory))
+            .ToUpperInvariant();
+        var digest = SHA256.HashData(Encoding.UTF8.GetBytes(normalizedPath));
+        return $"Portable.{Convert.ToHexString(digest.AsSpan(0, 8))}";
+    }
 
     public void StartListening(Action activationRequested)
     {
