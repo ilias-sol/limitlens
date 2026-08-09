@@ -42,7 +42,7 @@ jobs:
           }
           "value=$version" >> $env:GITHUB_OUTPUT
       - name: Install Inno Setup
-        run: choco install innosetup --version=6.7.3 --allow-downgrade --no-progress -y
+        run: choco install innosetup --version=6.7.1 --allow-downgrade --no-progress -y
       - name: Locked restore and dependency audit
         run: dotnet restore LimitLens.slnx --locked-mode -p:Configuration=Release -p:NuGetAudit=true -p:NuGetAuditMode=all
       - name: Build, test, and package
