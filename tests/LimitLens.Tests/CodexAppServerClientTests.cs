@@ -48,6 +48,9 @@ public sealed class CodexAppServerClientTests
     public async Task SparseNotificationKeepsTheLatestCompleteWindow()
     {
         await using var client = new CodexAppServerClient(new DashboardSettings());
+        Assert.True((bool)Invoke(client, "ApplyAccount", Element("""
+            {"account":{"type":"chatgpt","planType":"plus"}}
+            """))!);
         _ = Invoke(client, "ApplyRateLimits", Element("""
             {"rateLimitsByLimitId":{"codex":{"limitId":"codex","primary":{"usedPercent":40,"resetsAt":1785888000}}}}
             """));
@@ -65,16 +68,94 @@ public sealed class CodexAppServerClientTests
     [Theory]
     [InlineData("{\"account\":null}", SourceConnectionState.SignedOut)]
     [InlineData("{\"account\":{\"type\":\"apiKey\"}}", SourceConnectionState.LocalOnly)]
-    public async Task ReportsUnavailableAccountModesWithoutZeroingLocalAnalytics(
+    public async Task UnavailableAccountModesClearPreviousAccountUsage(
         string payload,
         SourceConnectionState expectedState)
     {
         await using var client = new CodexAppServerClient(new DashboardSettings());
+        SeedAccountSnapshot(client);
 
         var available = (bool)Invoke(client, "ApplyAccount", Element(payload))!;
+        _ = Invoke(client, "PublishSnapshot");
 
         Assert.False(available);
         Assert.Equal(expectedState, client.Health.State);
+        Assert.Null(client.Current.PlanType);
+        Assert.Equal(new AccountUsageSummary(), client.Current.Summary);
+        Assert.Empty(client.Current.DailyUsage);
+        Assert.Empty(client.Current.RateLimits);
+        Assert.Null(client.Current.ResetCredits);
+        Assert.Empty(client.Current.Extensions!);
+    }
+
+    [Fact]
+    public async Task ConcurrentRateLimitUpdatesOnlyPublishCompleteSnapshots()
+    {
+        await using var client = new CodexAppServerClient(new DashboardSettings());
+        Assert.True((bool)Invoke(client, "ApplyAccount", Element("""
+            {"account":{"type":"chatgpt","planType":"plus"}}
+            """))!);
+        var buckets = Enumerable.Range(0, 64).ToDictionary(
+            index => $"bucket-{index}",
+            index => (object)new
+            {
+                limitId = $"bucket-{index}",
+                primary = new { usedPercent = index },
+            });
+        var refresh = Element(JsonSerializer.Serialize(new { rateLimitsByLimitId = buckets }));
+        var notification = Element("""
+            {"rateLimits":{"limitId":"notification","primary":{"usedPercent":42}}}
+            """);
+        var partialSnapshots = 0;
+        client.SnapshotChanged += snapshot =>
+        {
+            if (snapshot.RateLimits.Count is not 1 and not 64 and not 65)
+            {
+                Interlocked.Increment(ref partialSnapshots);
+            }
+        };
+
+        await Task.WhenAll(
+            Task.Run(() =>
+            {
+                for (var index = 0; index < 200; index++)
+                {
+                    _ = Invoke(client, "ApplyRateLimits", refresh);
+                    _ = Invoke(client, "PublishSnapshot");
+                }
+            }),
+            Task.Run(() =>
+            {
+                for (var index = 0; index < 500; index++)
+                {
+                    _ = Invoke(client, "ApplyNotification", "account/rateLimits/updated", notification);
+                }
+            }));
+
+        Assert.Equal(0, partialSnapshots);
+        Assert.Contains(client.Current.RateLimits.Count, new[] { 64, 65 });
+    }
+
+    private static void SeedAccountSnapshot(CodexAppServerClient client)
+    {
+        Assert.True((bool)Invoke(client, "ApplyAccount", Element("""
+            {"account":{"type":"chatgpt","planType":"plus"}}
+            """))!);
+        _ = Invoke(client, "ApplyUsage", Element("""
+            {
+              "summary":{"lifetimeTokens":123},
+              "dailyUsageBuckets":[{"startDate":"2026-08-04","tokens":45}],
+              "futureUsageField":true
+            }
+            """));
+        _ = Invoke(client, "ApplyRateLimits", Element("""
+            {
+              "rateLimitsByLimitId":{"codex":{"limitId":"codex","primary":{"usedPercent":50}}},
+              "rateLimitResetCredits":{"availableCount":2},
+              "futureRateField":true
+            }
+            """));
+        _ = Invoke(client, "PublishSnapshot");
     }
 
     private static object? Invoke(object instance, string methodName, params object?[] arguments)

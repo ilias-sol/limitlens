@@ -188,6 +188,40 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         }
     }
 
+    public FlyoutPosition SelectedFlyoutPosition
+    {
+        get => settings.FlyoutPosition;
+        set
+        {
+            if (settings.FlyoutPosition == value) return;
+            settings.FlyoutPosition = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(IsFlyoutPositionLeft));
+            OnPropertyChanged(nameof(IsFlyoutPositionCenter));
+            OnPropertyChanged(nameof(IsFlyoutPositionRight));
+            WidgetBehaviorChanged?.Invoke();
+            QueueSettingsSave();
+        }
+    }
+
+    public bool IsFlyoutPositionLeft
+    {
+        get => SelectedFlyoutPosition == FlyoutPosition.Left;
+        set { if (value) SelectedFlyoutPosition = FlyoutPosition.Left; }
+    }
+
+    public bool IsFlyoutPositionCenter
+    {
+        get => SelectedFlyoutPosition == FlyoutPosition.Center;
+        set { if (value) SelectedFlyoutPosition = FlyoutPosition.Center; }
+    }
+
+    public bool IsFlyoutPositionRight
+    {
+        get => SelectedFlyoutPosition == FlyoutPosition.Right;
+        set { if (value) SelectedFlyoutPosition = FlyoutPosition.Right; }
+    }
+
     public double WidgetOpacity
     {
         get => settings.WidgetOpacity;

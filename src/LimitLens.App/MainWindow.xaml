@@ -14,10 +14,10 @@
                             GlassFrameThickness="0" UseAeroCaptionButtons="False" />
     </shell:WindowChrome.WindowChrome>
     <Window.Resources>
-        <SolidColorBrush x:Key="FlyoutSurface" Color="#8A1A1D22" />
-        <SolidColorBrush x:Key="FlyoutLayer" Color="#4A39434C" />
-        <SolidColorBrush x:Key="FlyoutLayerStrong" Color="#623D4750" />
-        <SolidColorBrush x:Key="FlyoutInsight" Color="#66282C33" />
+        <SolidColorBrush x:Key="FlyoutSurface" Color="#A41A1D22" />
+        <SolidColorBrush x:Key="FlyoutLayer" Color="#6439434C" />
+        <SolidColorBrush x:Key="FlyoutLayerStrong" Color="#7C3D4750" />
+        <SolidColorBrush x:Key="FlyoutInsight" Color="#80282C33" />
         <SolidColorBrush x:Key="FlyoutBorder" Color="#18FFFFFF" />
         <SolidColorBrush x:Key="FlyoutDivider" Color="#12FFFFFF" />
         <SolidColorBrush x:Key="FlyoutText" Color="#FFF5F6F8" />
@@ -123,6 +123,32 @@
             <Setter Property="BorderBrush" Value="{DynamicResource FlyoutBorder}" />
             <Setter Property="BorderThickness" Value="1" />
             <Setter Property="Padding" Value="14,8" />
+        </Style>
+        <Style x:Key="FlyoutPositionButton" TargetType="RadioButton">
+            <Setter Property="Height" Value="34" />
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+            <Setter Property="Background" Value="{DynamicResource FlyoutHover}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RadioButton">
+                        <Border x:Name="Surface" Background="{TemplateBinding Background}" CornerRadius="7"
+                                BorderBrush="{DynamicResource FlyoutBorder}" BorderThickness="1">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="Surface" Property="Background" Value="{DynamicResource FlyoutBlue}" />
+                                <Setter Property="Foreground" Value="White" />
+                            </Trigger>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Surface" Property="Opacity" Value="0.88" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="FlyoutBackButton" TargetType="Button">
             <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
@@ -263,6 +289,59 @@
                                 <TextBlock x:Name="AppearanceLabel" Text="Light appearance"
                                            Foreground="{DynamicResource FlyoutText}" FontSize="13" />
                             </CheckBox>
+                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
+                            <TextBlock x:Name="FlyoutPositionLabel" Text="Flyout position" FontSize="13"
+                                       Foreground="{DynamicResource FlyoutText}" Margin="0,11,0,8" />
+                            <UniformGrid Columns="3" Margin="-2,0,-2,11">
+                                <RadioButton x:Name="FlyoutPositionLeft" GroupName="FlyoutPosition"
+                                             Margin="2,0" Style="{StaticResource FlyoutPositionButton}"
+                                             IsChecked="{Binding IsFlyoutPositionLeft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                    <TextBlock Text="Left">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsChecked, ElementName=FlyoutPositionLeft}" Value="True">
+                                                        <Setter Property="Foreground" Value="White" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </RadioButton>
+                                <RadioButton x:Name="FlyoutPositionCenter" GroupName="FlyoutPosition"
+                                             Margin="2,0" Style="{StaticResource FlyoutPositionButton}"
+                                             IsChecked="{Binding IsFlyoutPositionCenter, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                    <TextBlock Text="Center">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsChecked, ElementName=FlyoutPositionCenter}" Value="True">
+                                                        <Setter Property="Foreground" Value="White" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </RadioButton>
+                                <RadioButton x:Name="FlyoutPositionRight" GroupName="FlyoutPosition"
+                                             Margin="2,0" Style="{StaticResource FlyoutPositionButton}"
+                                             IsChecked="{Binding IsFlyoutPositionRight, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
+                                    <TextBlock Text="Right">
+                                        <TextBlock.Style>
+                                            <Style TargetType="TextBlock">
+                                                <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+                                                <Style.Triggers>
+                                                    <DataTrigger Binding="{Binding IsChecked, ElementName=FlyoutPositionRight}" Value="True">
+                                                        <Setter Property="Foreground" Value="White" />
+                                                    </DataTrigger>
+                                                </Style.Triggers>
+                                            </Style>
+                                        </TextBlock.Style>
+                                    </TextBlock>
+                                </RadioButton>
+                            </UniformGrid>
                             <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
                             <CheckBox IsChecked="{Binding ShowCreditsInWidget}" Style="{StaticResource FlyoutToggle}">
                                 <TextBlock x:Name="ShowCreditsLabel" Text="Show available credits"

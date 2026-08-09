@@ -5,6 +5,7 @@ using LimitLens.App.Services;
 using LimitLens.App.Taskbar;
 using LimitLens.App.ViewModels;
 using LimitLens.Core.Abstractions;
+using LimitLens.Core.Settings;
 using LimitLens.Indexing.AppServer;
 using LimitLens.Indexing.Indexing;
 using LimitLens.Indexing.Storage;
@@ -35,7 +36,12 @@ public partial class App : System.Windows.Application
         var executableDirectory = Path.GetDirectoryName(Environment.ProcessPath) ?? AppContext.BaseDirectory;
         var showcaseMode = args.Args.Any(argument => string.Equals(argument, "--showcase", StringComparison.OrdinalIgnoreCase)) ||
             File.Exists(Path.Combine(executableDirectory, "showcase.flag"));
-        var instanceName = showcaseMode ? "Showcase" : null;
+        var portableMode = File.Exists(Path.Combine(executableDirectory, "portable.flag"));
+        var instanceName = showcaseMode
+            ? "Showcase"
+            : portableMode
+                ? SingleInstanceCoordinator.PortableInstanceName(executableDirectory)
+                : null;
         singleInstance = new SingleInstanceCoordinator(instanceName);
         if (!singleInstance.IsPrimary)
         {
@@ -48,50 +54,63 @@ public partial class App : System.Windows.Application
 
         try
         {
-            storagePaths = AppStoragePaths.Detect();
-            storagePaths.EnsureCreated();
-            var isFirstRun = !File.Exists(storagePaths.SettingsPath);
-            settingsStore = new JsonSettingsStore(storagePaths);
-            var settings = await settingsStore.LoadAsync();
-            var startupService = new StartupRegistrationService();
-            if (isFirstRun && !showcaseMode)
-            {
-                try
-                {
-                    startupService.SetEnabled(true);
-                }
-                catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException)
-                {
-                    // Keep the app usable when startup registration is unavailable.
-                }
-            }
-
-            settings.StartWithWindows = startupService.IsEnabled;
-            if (isFirstRun)
-            {
-                await settingsStore.SaveAsync(settings);
-            }
-
-            repository = new SqliteUsageRepository(storagePaths);
-            sessionIndexer = new SessionLogIndexer(repository, settings);
+            DashboardSettings settings;
+            IStartupRegistrationService startupService;
+            string dataLocation;
             if (showcaseMode)
             {
                 var showcaseClient = new ShowcaseAccountClient(DateTimeOffset.Now);
-                settings.UsageHistory = [.. showcaseClient.UsageHistory];
-                settings.ShowCreditsInWidget = true;
+                settings = new DashboardSettings
+                {
+                    StartWithWindows = false,
+                    ShowCreditsInWidget = true,
+                    UsageHistory = [.. showcaseClient.UsageHistory],
+                };
+                settingsStore = new ShowcaseSettingsStore(settings);
+                startupService = new ShowcaseStartupRegistrationService();
+                sessionIndexer = new ShowcaseSessionLogIndexer();
                 accountClient = showcaseClient;
+                dataLocation = "Showcase mode (no local data)";
             }
             else
             {
+                storagePaths = AppStoragePaths.Detect();
+                storagePaths.EnsureCreated();
+                var isFirstRun = !File.Exists(storagePaths.SettingsPath);
+                settingsStore = new JsonSettingsStore(storagePaths);
+                settings = await settingsStore.LoadAsync();
+                startupService = new StartupRegistrationService();
+                if (isFirstRun)
+                {
+                    try
+                    {
+                        startupService.SetEnabled(true);
+                    }
+                    catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException)
+                    {
+                        // Keep the app usable when startup registration is unavailable.
+                    }
+                }
+
+                settings.StartWithWindows = startupService.IsEnabled;
+                if (isFirstRun)
+                {
+                    await settingsStore.SaveAsync(settings);
+                }
+
+                repository = new SqliteUsageRepository(storagePaths);
+                sessionIndexer = new SessionLogIndexer(repository, settings);
                 accountClient = new CodexAppServerClient(settings);
+                dataLocation = storagePaths.RootDirectory;
             }
+
             viewModel = new DashboardViewModel(
                 accountClient,
                 sessionIndexer,
                 settingsStore,
                 startupService,
                 settings,
-                storagePaths.RootDirectory);
+                dataLocation);
             dashboardWindow = new MainWindow(viewModel);
             MainWindow = dashboardWindow;
 
@@ -113,7 +132,7 @@ public partial class App : System.Windows.Application
             DashboardThemeService.Apply(settings.Theme);
 
             var startHidden = args.Args.Any(argument => string.Equals(argument, "--startup", StringComparison.OrdinalIgnoreCase));
-            if ((showcaseMode || string.Equals(Environment.GetEnvironmentVariable("LIMIT_LENS_QA"), "1", StringComparison.Ordinal)) && !startHidden)
+            if (!startHidden)
             {
                 dashboardWindow.ShowDashboard(taskbarWidget.ScreenBounds);
             }
@@ -222,10 +241,22 @@ public partial class App : System.Windows.Application
     private async Task ShutdownCoreAsync()
     {
         lifetime.Cancel();
-        dashboardWindow?.PermitClose();
-        dashboardWindow?.Close();
-        await DisposeServicesAsync();
-        Shutdown(0);
+        try
+        {
+            dashboardWindow?.PermitClose();
+            dashboardWindow?.Close();
+            await DisposeServicesAsync();
+        }
+        catch (Exception)
+        {
+            // Explicit Quit must still terminate if one best-effort cleanup step fails.
+        }
+        finally
+        {
+            singleInstance?.Dispose();
+            singleInstance = null;
+            Shutdown(0);
+        }
     }
 
     private async Task DisposeServicesAsync()

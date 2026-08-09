@@ -13,6 +13,13 @@ public enum DashboardWindowMode
     Expanded,
 }
 
+public enum FlyoutPosition
+{
+    Left,
+    Center,
+    Right,
+}
+
 public static class DashboardCardIds
 {
     public const string Limits = "limits";
@@ -51,7 +58,7 @@ public sealed class UsageHistorySample
 
 public sealed class DashboardSettings
 {
-    public const int CurrentSchemaVersion = 8;
+    public const int CurrentSchemaVersion = 9;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public DashboardWindowMode WindowMode { get; set; } = DashboardWindowMode.Compact;
@@ -61,6 +68,7 @@ public sealed class DashboardSettings
     public bool WidgetAlwaysOnTop { get; set; } = true;
     public bool AutoCollapseWidget { get; set; }
     public bool ShowCreditsInWidget { get; set; } = true;
+    public FlyoutPosition FlyoutPosition { get; set; } = FlyoutPosition.Right;
     public double WidgetOpacity { get; set; } = 1;
     public List<UsageHistorySample> UsageHistory { get; set; } = [];
     public bool AlertsEnabled { get; set; } = true;

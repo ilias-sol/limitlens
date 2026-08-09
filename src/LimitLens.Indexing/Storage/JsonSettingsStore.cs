@@ -51,6 +51,9 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
                 Current = Normalize(new DashboardSettings());
             }
 
+            // Persist migrations and repaired values (especially the privacy salt) so normalization
+            // remains stable across launches instead of generating a new identity on every load.
+            await WriteCoreAsync(Current, cancellationToken).ConfigureAwait(false);
             return Current;
         }
         finally
@@ -117,6 +120,7 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
     {
         settings.CompactPlacement ??= new WindowPlacementSettings();
         settings.ExpandedPlacement ??= new WindowPlacementSettings();
+        settings.AlertThresholds ??= [];
         var previousSchema = settings.SchemaVersion;
         if (previousSchema < 7)
         {
@@ -134,6 +138,10 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
         }
 
         settings.SchemaVersion = DashboardSettings.CurrentSchemaVersion;
+        if (!Enum.IsDefined(settings.FlyoutPosition))
+        {
+            settings.FlyoutPosition = FlyoutPosition.Right;
+        }
         settings.AccountRefreshSeconds = Math.Clamp(settings.AccountRefreshSeconds, 30, 900);
         settings.WidgetOpacity = Math.Clamp(settings.WidgetOpacity, 0.65, 1);
         settings.UsageHistory = (settings.UsageHistory ?? [])
@@ -166,13 +174,21 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
             .Take(4)
             .ToList();
 
-        if (string.IsNullOrWhiteSpace(settings.PrivacySalt))
+        if (!IsValidPrivacySalt(settings.PrivacySalt))
         {
             settings.PrivacySalt = Convert.ToHexString(
                 System.Security.Cryptography.RandomNumberGenerator.GetBytes(16));
         }
 
         return settings;
+    }
+
+    private static bool IsValidPrivacySalt(string? value)
+    {
+        return value is { Length: 32 } && value.All(static character =>
+            character is >= '0' and <= '9' or
+                >= 'A' and <= 'F' or
+                >= 'a' and <= 'f');
     }
 
     private static List<string> NormalizeCardList(

@@ -59,12 +59,13 @@ public partial class TrayMenuWindow : Window
 
     private void ApplyPalette(bool light)
     {
-        Resources["TrayMenuBackgroundBrush"] = Brush(light ? "#FEFFFFFF" : "#FE202124");
-        Resources["TrayMenuBorderBrush"] = Brush(light ? "#D9DDE4" : "#FF494B50");
-        Resources["TrayMenuTextBrush"] = Brush(light ? "#FF23272F" : "#FFF4F5F7");
-        Resources["TrayMenuHoverBrush"] = Brush(light ? "#FFF0F2F5" : "#FF34363A");
-        Resources["TrayMenuPressedBrush"] = Brush(light ? "#FFE5E8EC" : "#FF414349");
-        Resources["TrayMenuSeparatorBrush"] = Brush(light ? "#FFE2E5EA" : "#FF45474C");
+        _ = light; // The native-style tray menu deliberately uses one light palette in every app theme.
+        Resources["TrayMenuBackgroundBrush"] = Brush("#FEFFFFFF");
+        Resources["TrayMenuBorderBrush"] = Brush("#FFD9DDE4");
+        Resources["TrayMenuTextBrush"] = Brush("#FF23272F");
+        Resources["TrayMenuHoverBrush"] = Brush("#FFF0F2F5");
+        Resources["TrayMenuPressedBrush"] = Brush("#FFE5E8EC");
+        Resources["TrayMenuSeparatorBrush"] = Brush("#FFE2E5EA");
     }
 
     private static SolidColorBrush Brush(string color) =>

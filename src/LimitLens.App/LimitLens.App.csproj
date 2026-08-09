@@ -27,7 +27,6 @@
     <PublishReadyToRun>false</PublishReadyToRun>
     <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
     <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
-    <DebugType>embedded</DebugType>
   </PropertyGroup>
   <ItemGroup>
     <Resource Include="Assets\LimitLens.ico" />

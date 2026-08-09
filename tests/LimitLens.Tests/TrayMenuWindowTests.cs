@@ -16,6 +16,16 @@ public sealed class TrayMenuWindowTests
             {
                 var menu = new TrayMenuWindow(() => { }, () => { }, () => { }, useLightPalette);
                 menu.Show();
+                var expectedText = System.Windows.Media.Color.FromRgb(0x23, 0x27, 0x2F);
+                var expectedBackground = System.Windows.Media.Color.FromArgb(0xFE, 0xFF, 0xFF, 0xFF);
+                Assert.Equal(expectedText, Assert.IsType<System.Windows.Media.SolidColorBrush>(menu.Resources["TrayMenuTextBrush"]).Color);
+                Assert.Equal(expectedBackground, Assert.IsType<System.Windows.Media.SolidColorBrush>(menu.Resources["TrayMenuBackgroundBrush"]).Color);
+                foreach (var name in new[] { "OpenUsageButton", "SettingsMenuButton", "QuitButton" })
+                {
+                    var button = Assert.IsType<System.Windows.Controls.Button>(menu.FindName(name));
+                    var label = Assert.IsType<System.Windows.Controls.TextBlock>(button.Content);
+                    Assert.Equal(expectedText, Assert.IsType<System.Windows.Media.SolidColorBrush>(label.Foreground).Color);
+                }
                 menu.Dismiss();
                 menu.Dismiss();
             }

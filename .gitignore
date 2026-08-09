@@ -12,3 +12,29 @@ coverage/
 installer/Output/
 src/LimitLens.App/Data/
 portable.flag
+
+# Local secrets and machine-specific configuration
+.env
+.env.*
+!.env.example
+secrets.json
+appsettings.*.local.json
+*.pem
+*.key
+*.pfx
+*.p12
+*.kdbx
+
+# Local application data and diagnostics
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.log
+*.dmp
+*.stackdump
+crashdumps/
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db

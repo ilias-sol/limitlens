@@ -22,11 +22,14 @@ public sealed class DashboardViewModelTests
             "Data");
 
         model.IsCompact = false;
+        model.IsFlyoutPositionCenter = true;
         model.MoveCard(0, 2);
         var extraCompact = model.CardSettings.First(card => !card.IsCompact);
         extraCompact.IsCompact = true;
 
         Assert.True(model.IsExpanded);
+        Assert.Equal(FlyoutPosition.Center, settings.FlyoutPosition);
+        Assert.True(model.IsFlyoutPositionCenter);
         Assert.Equal(model.CardSettings.Select(card => card.Id), settings.CardOrder);
         Assert.False(extraCompact.IsCompact);
         Assert.True(store.SaveCount > 0);
@@ -99,7 +102,7 @@ public sealed class DashboardViewModelTests
     [Fact]
     public void ShowcaseRepresentsFourDaysWithSixtySevenPercentRemaining()
     {
-        var now = new DateTimeOffset(2026, 8, 5, 16, 0, 0, TimeSpan.FromHours(2));
+        var now = DateTimeOffset.Now;
         var client = new ShowcaseAccountClient(now);
         var settings = new DashboardSettings
         {

@@ -12,12 +12,18 @@ public sealed class SessionLogIndexer(
     IUsageRepository repository,
     DashboardSettings settings) : ISessionLogIndexer
 {
+    private const int MaxQueuedChanges = 4096;
     private readonly CodexPathResolver pathResolver = new(settings);
     private readonly SessionLogParser parser = new(settings.PrivacySalt);
     private readonly ConcurrentDictionary<string, SessionAggregate> sessions =
         new(StringComparer.Ordinal);
-    private readonly Channel<string> changeQueue = Channel.CreateUnbounded<string>(
-        new UnboundedChannelOptions { SingleReader = true, SingleWriter = false });
+    private readonly Channel<string> changeQueue = Channel.CreateBounded<string>(
+        new BoundedChannelOptions(MaxQueuedChanges)
+        {
+            FullMode = BoundedChannelFullMode.DropOldest,
+            SingleReader = true,
+            SingleWriter = false,
+        });
     private readonly List<FileSystemWatcher> watchers = [];
     private readonly SemaphoreSlim scanGate = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
@@ -115,6 +121,10 @@ public sealed class SessionLogIndexer(
         catch (OperationCanceledException)
         {
         }
+        catch (Exception)
+        {
+            // Background failures are surfaced through Health; shutdown must remain best-effort.
+        }
 
         lifetime.Dispose();
         scanGate.Dispose();
@@ -138,18 +148,33 @@ public sealed class SessionLogIndexer(
                 return;
             }
 
+            var failedFiles = 0;
+            Exception? latestFailure = null;
             for (var index = 0; index < files.Length; index++)
             {
                 cancellationToken.ThrowIfCancellationRequested();
-                await ProcessFileCoreAsync(files[index], cancellationToken).ConfigureAwait(false);
+                var failure = await TryProcessFileAsync(files[index], cancellationToken).ConfigureAwait(false);
+                if (failure is not null)
+                {
+                    failedFiles++;
+                    latestFailure = failure;
+                }
+
                 BackfillProgressChanged?.Invoke((double)(index + 1) / files.Length);
             }
 
             await PublishAggregateAsync(cancellationToken).ConfigureAwait(false);
-            SetHealth(new SourceHealth(
-                SourceConnectionState.Connected,
-                "Local Codex analytics are up to date.",
-                DateTimeOffset.Now));
+            if (latestFailure is null)
+            {
+                SetHealth(new SourceHealth(
+                    SourceConnectionState.Connected,
+                    "Local Codex analytics are up to date.",
+                    DateTimeOffset.Now));
+            }
+            else
+            {
+                SetFileFailureHealth(failedFiles, latestFailure);
+            }
         }
         finally
         {
@@ -160,71 +185,134 @@ public sealed class SessionLogIndexer(
     private async Task ProcessChangesAsync(CancellationToken cancellationToken)
     {
         var pending = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        while (await changeQueue.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+        while (!cancellationToken.IsCancellationRequested)
         {
-            while (changeQueue.Reader.TryRead(out var path))
+            try
             {
-                pending.Add(path);
-            }
+                if (!await changeQueue.Reader.WaitToReadAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
 
+                while (changeQueue.Reader.TryRead(out var path))
+                {
+                    pending.Add(path);
+                }
+
+                if (!indexingEnabled)
+                {
+                    pending.Clear();
+                    continue;
+                }
+
+                await Task.Delay(350, cancellationToken).ConfigureAwait(false);
+                while (changeQueue.Reader.TryRead(out var path))
+                {
+                    pending.Add(path);
+                }
+
+                await ProcessPendingChangesAsync(pending, cancellationToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                return;
+            }
+            catch (Exception exception)
+            {
+                pending.Clear();
+                SetHealth(new SourceHealth(
+                    SourceConnectionState.Faulted,
+                    "Live session indexing hit an unexpected error; reconciliation will retry.",
+                    Health.LastSuccessfulUpdate,
+                    exception.GetType().Name));
+            }
+        }
+    }
+
+    private async Task ProcessPendingChangesAsync(
+        HashSet<string> pending,
+        CancellationToken cancellationToken)
+    {
+        await scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        try
+        {
             if (!indexingEnabled)
             {
                 pending.Clear();
-                continue;
+                return;
             }
 
-            await Task.Delay(350, cancellationToken).ConfigureAwait(false);
-            while (changeQueue.Reader.TryRead(out var path))
+            var paths = pending.ToArray();
+            pending.Clear();
+            var failedFiles = 0;
+            Exception? latestFailure = null;
+            foreach (var path in paths)
             {
-                pending.Add(path);
-            }
-
-            await scanGate.WaitAsync(cancellationToken).ConfigureAwait(false);
-            try
-            {
-                foreach (var path in pending)
+                if (!File.Exists(path))
                 {
-                    if (File.Exists(path))
-                    {
-                        await ProcessFileCoreAsync(path, cancellationToken).ConfigureAwait(false);
-                    }
+                    continue;
                 }
 
-                pending.Clear();
-                await PublishAggregateAsync(cancellationToken).ConfigureAwait(false);
+                var failure = await TryProcessFileAsync(path, cancellationToken).ConfigureAwait(false);
+                if (failure is not null)
+                {
+                    failedFiles++;
+                    latestFailure = failure;
+                }
+            }
+
+            await PublishAggregateAsync(cancellationToken).ConfigureAwait(false);
+            if (latestFailure is null)
+            {
                 SetHealth(new SourceHealth(
                     SourceConnectionState.Connected,
                     "Local Codex analytics are live.",
                     DateTimeOffset.Now));
             }
-            catch (IOException exception)
+            else
             {
-                SetHealth(new SourceHealth(
-                    SourceConnectionState.Faulted,
-                    "A session file could not be read yet; it will be retried.",
-                    Health.LastSuccessfulUpdate,
-                    exception.GetType().Name));
+                SetFileFailureHealth(failedFiles, latestFailure);
             }
-            finally
-            {
-                scanGate.Release();
-            }
+        }
+        finally
+        {
+            scanGate.Release();
         }
     }
 
     private async Task ReconcileAsync(CancellationToken cancellationToken)
     {
         using var timer = new PeriodicTimer(TimeSpan.FromSeconds(60));
-        while (await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+        while (!cancellationToken.IsCancellationRequested)
         {
-            if (!indexingEnabled)
+            try
             {
-                continue;
-            }
+                if (!await timer.WaitForNextTickAsync(cancellationToken).ConfigureAwait(false))
+                {
+                    return;
+                }
 
-            foreach (var path in EnumerateSessionFiles())
+                if (!indexingEnabled)
+                {
+                    continue;
+                }
+
+                foreach (var path in EnumerateSessionFiles())
+                {
+                    changeQueue.Writer.TryWrite(path);
+                }
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
-                changeQueue.Writer.TryWrite(path);
+                return;
+            }
+            catch (Exception exception)
+            {
+                SetHealth(new SourceHealth(
+                    SourceConnectionState.Faulted,
+                    "Session reconciliation failed; the next scan will retry.",
+                    Health.LastSuccessfulUpdate,
+                    exception.GetType().Name));
             }
         }
     }
@@ -293,6 +381,25 @@ public sealed class SessionLogIndexer(
                     : lastWrite,
                 result.Session.SessionId),
             cancellationToken).ConfigureAwait(false);
+    }
+
+    private async Task<Exception?> TryProcessFileAsync(
+        string fullPath,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ProcessFileCoreAsync(fullPath, cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
     }
 
     private async Task PublishAggregateAsync(CancellationToken cancellationToken)
@@ -378,6 +485,16 @@ public sealed class SessionLogIndexer(
     {
         Health = health;
         HealthChanged?.Invoke(health);
+    }
+
+    private void SetFileFailureHealth(int failedFiles, Exception latestFailure)
+    {
+        var noun = failedFiles == 1 ? "file" : "files";
+        SetHealth(new SourceHealth(
+            SourceConnectionState.Faulted,
+            $"{failedFiles} session {noun} could not be indexed; reconciliation will retry.",
+            Health.LastSuccessfulUpdate,
+            latestFailure.GetType().Name));
     }
 
     private static bool IsUnderHome(string path, string home)

@@ -1,4 +1,3 @@
-using System.ComponentModel;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Interop;
@@ -129,7 +128,7 @@ public sealed class TaskbarWidgetService : IDisposable
         if (GetAncestor(source.Handle, GaParent) != taskbar)
         {
             DestroyHost();
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "Could not attach Limit Lens to the Windows taskbar.");
+            return;
         }
         // SetParent deliberately leaves WS_POPUP/WS_CHILD unchanged. WPF's HWND positioning hook treats
         // the reparented popup as a screen-space window, so switch it to child semantics after injection.

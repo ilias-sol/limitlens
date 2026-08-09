@@ -44,6 +44,9 @@ Source: "{#PublishDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs
 [Icons]
 Name: "{autoprograms}\Limit Lens"; Filename: "{app}\LimitLens.exe"; WorkingDir: "{app}"
 
+[Registry]
+Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "LimitLens"; Flags: uninsdeletevalue
+
 [Run]
 Filename: "{app}\LimitLens.exe"; Description: "Launch Limit Lens"; Flags: nowait postinstall skipifsilent
 
