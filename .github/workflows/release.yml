@@ -44,7 +44,7 @@ jobs:
       - name: Install Inno Setup
         run: choco install innosetup --version=6.7.3 --allow-downgrade --no-progress -y
       - name: Locked restore and dependency audit
-        run: dotnet restore LimitLens.slnx --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
+        run: dotnet restore LimitLens.slnx --locked-mode -p:Configuration=Release -p:NuGetAudit=true -p:NuGetAuditMode=all
       - name: Build, test, and package
         shell: pwsh
         env:

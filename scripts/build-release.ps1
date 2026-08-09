@@ -26,7 +26,7 @@ foreach ($target in @($publish, $release)) {
     New-Item -ItemType Directory -Path $target -Force | Out-Null
 }
 
-dotnet restore (Join-Path $root 'LimitLens.slnx') --locked-mode
+dotnet restore (Join-Path $root 'LimitLens.slnx') --locked-mode -p:Configuration=Release
 if ($LASTEXITCODE -ne 0) { throw 'Restore failed.' }
 dotnet test (Join-Path $root 'LimitLens.slnx') -c Release --no-restore
 if ($LASTEXITCODE -ne 0) { throw 'Tests failed.' }

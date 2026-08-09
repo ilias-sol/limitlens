@@ -22,7 +22,7 @@ jobs:
           cache: true
           cache-dependency-path: '**/packages.lock.json'
       - name: Locked restore and dependency audit
-        run: dotnet restore LimitLens.slnx --locked-mode -p:NuGetAudit=true -p:NuGetAuditMode=all
+        run: dotnet restore LimitLens.slnx --locked-mode -p:Configuration=Release -p:NuGetAudit=true -p:NuGetAuditMode=all
       - name: Build
         run: dotnet build LimitLens.slnx -c Release --no-restore
       - name: Test
