@@ -112,12 +112,20 @@ foreach ($commit in $commits) {
 }
 
 if ($IncludeGitMetadata) {
-    $expectedIdentity = 'Limit Lens Contributors <contributors@limitlens.invalid>'
-    $identities = @(git -C $root log --all --format='%an <%ae>' | Sort-Object -Unique)
+    $allowedIdentityPatterns = @(
+        '^Limit Lens Contributors <contributors@limitlens\.invalid>$',
+        '^[^<\r\n]+ <(?:\d+\+)?[A-Za-z0-9-]+@users\.noreply\.github\.com>$',
+        '^GitHub <noreply@github\.com>$'
+    )
+    $identities = @(
+        @(git -C $root log --all --format='%an <%ae>')
+        @(git -C $root log --all --format='%cn <%ce>')
+    ) | Where-Object { $_ } | Sort-Object -Unique
     foreach ($identity in $identities) {
-        if ($identity -ne $expectedIdentity) {
+        $allowed = $allowedIdentityPatterns | Where-Object { $identity -match $_ }
+        if (-not $allowed) {
             $findings.Add([pscustomobject]@{
-                Kind = 'unexpected Git author identity'
+                Kind = 'unexpected Git identity'
                 File = '.git history'
                 Line = 0
             })
