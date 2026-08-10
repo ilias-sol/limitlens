@@ -27,6 +27,7 @@ internal sealed class ShowcaseSettingsStore(DashboardSettings settings) : ISetti
 internal sealed class ShowcaseSessionLogIndexer : ISessionLogIndexer
 {
     public LocalUsageAggregate Current { get; } = LocalUsageAggregate.Empty;
+    public IReadOnlyList<UsageHistorySample> RateLimitHistory { get; } = [];
     public SourceHealth Health { get; } = new(
         SourceConnectionState.LocalOnly,
         "Showcase mode does not read local Codex sessions.",

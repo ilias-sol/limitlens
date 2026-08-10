@@ -14,6 +14,8 @@ namespace LimitLens.App.ViewModels;
 
 public sealed class DashboardViewModel : ObservableObject, IDisposable
 {
+    private const int MaxUsageHistorySamples = 512;
+    private static readonly TimeSpan ResetTimestampTolerance = TimeSpan.FromMinutes(2);
     private static readonly IReadOnlyDictionary<string, string> CardNames =
         new Dictionary<string, string>(StringComparer.Ordinal)
         {
@@ -1035,34 +1037,73 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     {
         var timestamp = account.UpdatedAt > DateTimeOffset.MinValue ? account.UpdatedAt : now;
         timestamp = timestamp > now.AddMinutes(1) ? now : timestamp;
-        settings.UsageHistory.RemoveAll(sample => sample.ResetAt != reset || sample.Timestamp < ForecastWindowStart);
-
-        var last = settings.UsageHistory.LastOrDefault();
-        if (last is not null &&
-            last.Timestamp == timestamp &&
-            last.RemainingPercent == window.RemainingPercent)
-        {
-            return;
-        }
-
-        if (last is not null && timestamp <= last.Timestamp)
-        {
-            return;
-        }
-
-        settings.UsageHistory.Add(new UsageHistorySample
+        var start = ForecastWindowStart ?? timestamp;
+        var current = new UsageHistorySample
         {
             Timestamp = timestamp,
             RemainingPercent = window.RemainingPercent,
             ResetAt = reset,
-        });
-        if (settings.UsageHistory.Count > 512)
+        };
+        var candidates = settings.UsageHistory
+            .Concat(sessionIndexer.RateLimitHistory)
+            .Append(current)
+            .Where(sample => IsSameResetWindow(sample.ResetAt, reset) &&
+                             sample.Timestamp >= start - ResetTimestampTolerance &&
+                             sample.Timestamp <= timestamp &&
+                             sample.RemainingPercent >= window.RemainingPercent &&
+                             sample.RemainingPercent is >= 0 and <= 100)
+            .Select(sample => new UsageHistorySample
+            {
+                Timestamp = sample.Timestamp < start ? start : sample.Timestamp,
+                RemainingPercent = sample.RemainingPercent,
+                ResetAt = reset,
+            })
+            .GroupBy(sample => sample.Timestamp)
+            .Select(group => group.OrderBy(sample => sample.RemainingPercent).First())
+            .OrderBy(sample => sample.Timestamp)
+            .ToArray();
+
+        var compacted = new List<UsageHistorySample>();
+        foreach (var sample in candidates)
         {
-            settings.UsageHistory.RemoveRange(0, settings.UsageHistory.Count - 512);
+            if (compacted.Count > 0 &&
+                sample.RemainingPercent > compacted[^1].RemainingPercent)
+            {
+                continue;
+            }
+
+            if (compacted.Count > 1 &&
+                sample.RemainingPercent == compacted[^1].RemainingPercent &&
+                sample.RemainingPercent == compacted[^2].RemainingPercent)
+            {
+                compacted[^1] = sample;
+            }
+            else
+            {
+                compacted.Add(sample);
+            }
         }
 
+        var replacement = compacted.TakeLast(MaxUsageHistorySamples).ToList();
+        if (UsageHistoriesEqual(settings.UsageHistory, replacement))
+        {
+            return;
+        }
+
+        settings.UsageHistory = replacement;
         QueueSettingsSave();
     }
+
+    private static bool IsSameResetWindow(DateTimeOffset first, DateTimeOffset second) =>
+        (first - second).Duration() <= ResetTimestampTolerance;
+
+    private static bool UsageHistoriesEqual(
+        IReadOnlyList<UsageHistorySample> first,
+        IReadOnlyList<UsageHistorySample> second) =>
+        first.Count == second.Count && first.Zip(second).All(pair =>
+            pair.First.Timestamp == pair.Second.Timestamp &&
+            pair.First.RemainingPercent == pair.Second.RemainingPercent &&
+            pair.First.ResetAt == pair.Second.ResetAt);
 
     private bool TryCalculateRecentForecast(
         DateTimeOffset start,
@@ -1078,7 +1119,9 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         }
 
         var samples = settings.UsageHistory
-            .Where(sample => sample.ResetAt == reset && sample.Timestamp >= cutoff && sample.Timestamp <= now.AddMinutes(1))
+            .Where(sample => IsSameResetWindow(sample.ResetAt, reset) &&
+                             sample.Timestamp >= cutoff &&
+                             sample.Timestamp <= now.AddMinutes(1))
             .OrderBy(sample => sample.Timestamp)
             .GroupBy(sample => sample.Timestamp)
             .Select(group => group.Last())

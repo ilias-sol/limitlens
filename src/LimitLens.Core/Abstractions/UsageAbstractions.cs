@@ -16,6 +16,7 @@ public interface ICodexAppServerClient : IAsyncDisposable
 public interface ISessionLogIndexer : IAsyncDisposable
 {
     LocalUsageAggregate Current { get; }
+    IReadOnlyList<UsageHistorySample> RateLimitHistory { get; }
     SourceHealth Health { get; }
     event Action<LocalUsageAggregate>? SnapshotChanged;
     event Action<SourceHealth>? HealthChanged;

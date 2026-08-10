@@ -16,6 +16,50 @@ public sealed class SessionLogIndexerTests
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 
     [Fact]
+    public async Task BackfillsAndCompactsPrimaryRateLimitHistoryFromSessionMetadata()
+    {
+        using var folder = new TempFolder();
+        var sessions = Directory.CreateDirectory(folder.GetPath("sessions"));
+        var repository = new SelectivelyFailingRepository("never");
+        var reset = DateTimeOffset.FromUnixTimeSeconds(
+            DateTimeOffset.UtcNow.AddDays(6).ToUnixTimeSeconds());
+        var start = reset - TimeSpan.FromDays(7);
+        var lines = new[]
+        {
+            JsonSerializer.Serialize(new
+            {
+                timestamp = start,
+                type = "session_meta",
+                payload = new { id = "history-session", timestamp = start, cwd = @"C:\Work\SafeProject" },
+            }),
+            RateLimitLine(start, 0, reset.AddSeconds(-6)),
+            RateLimitLine(start.AddHours(1), 20, reset),
+            RateLimitLine(start.AddHours(2), 20, reset),
+            RateLimitLine(start.AddHours(3), 20, reset),
+            RateLimitLine(start.AddHours(20), 40, reset),
+        };
+        await File.WriteAllLinesAsync(
+            Path.Combine(sessions.FullName, "history.jsonl"),
+            lines,
+            Utf8NoBom);
+
+        await using var indexer = new SessionLogIndexer(
+            repository,
+            new DashboardSettings
+            {
+                CodexHomePath = folder.Path,
+                PrivacySalt = Salt,
+            });
+
+        await indexer.StartAsync();
+
+        Assert.Equal([100, 80, 80, 60], indexer.RateLimitHistory.Select(sample => sample.RemainingPercent));
+        Assert.All(indexer.RateLimitHistory, sample => Assert.Equal(reset, sample.ResetAt));
+        Assert.Equal(start.AddHours(1), indexer.RateLimitHistory[1].Timestamp);
+        Assert.Equal(start.AddHours(3), indexer.RateLimitHistory[2].Timestamp);
+    }
+
+    [Fact]
     public async Task LiveWorkerContinuesAfterOneSessionFileFails()
     {
         using var folder = new TempFolder();
@@ -54,6 +98,39 @@ public sealed class SessionLogIndexerTests
         });
         return File.WriteAllTextAsync(path, record + Environment.NewLine, Utf8NoBom);
     }
+
+    private static string RateLimitLine(
+        DateTimeOffset timestamp,
+        int usedPercent,
+        DateTimeOffset reset) => JsonSerializer.Serialize(new
+        {
+            timestamp,
+            type = "event_msg",
+            payload = new
+            {
+                type = "token_count",
+                info = new
+                {
+                    total_token_usage = new
+                    {
+                        input_tokens = 0,
+                        cached_input_tokens = 0,
+                        output_tokens = 0,
+                        reasoning_output_tokens = 0,
+                        total_tokens = 0,
+                    },
+                },
+                rate_limits = new
+                {
+                    primary = new
+                    {
+                        used_percent = usedPercent,
+                        window_minutes = 10_080,
+                        resets_at = reset.ToUnixTimeSeconds(),
+                    },
+                },
+            },
+        });
 
     private static async Task WaitUntilAsync(Func<bool> condition)
     {

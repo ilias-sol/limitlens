@@ -13,6 +13,9 @@ public sealed class SessionLogIndexer(
     DashboardSettings settings) : ISessionLogIndexer
 {
     private const int MaxQueuedChanges = 4096;
+    private const int MaxRateLimitHistorySamples = 512;
+    private static readonly TimeSpan MaxRateLimitHistoryAge = TimeSpan.FromDays(8);
+    private static readonly TimeSpan ResetTimestampTolerance = TimeSpan.FromMinutes(2);
     private readonly CodexPathResolver pathResolver = new(settings);
     private readonly SessionLogParser parser = new(settings.PrivacySalt);
     private readonly ConcurrentDictionary<string, SessionAggregate> sessions =
@@ -25,15 +28,19 @@ public sealed class SessionLogIndexer(
             SingleWriter = false,
         });
     private readonly List<FileSystemWatcher> watchers = [];
+    private readonly Dictionary<string, long> rateLimitOffsets =
+        new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim scanGate = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
     private Task? changeWorker;
     private Task? reconciliationWorker;
     private string? codexHome;
+    private IReadOnlyList<UsageHistorySample> rateLimitHistory = [];
     private volatile bool indexingEnabled = true;
     private bool disposed;
 
     public LocalUsageAggregate Current { get; private set; } = LocalUsageAggregate.Empty;
+    public IReadOnlyList<UsageHistorySample> RateLimitHistory => rateLimitHistory;
     public SourceHealth Health { get; private set; } = SourceHealth.Starting("Preparing local analytics…");
 
     public event Action<LocalUsageAggregate>? SnapshotChanged;
@@ -67,6 +74,8 @@ public sealed class SessionLogIndexer(
             SetHealth(SourceHealth.Starting("Rebuilding local analytics…"));
             await repository.DeleteAllAsync(cancellationToken).ConfigureAwait(false);
             sessions.Clear();
+            rateLimitOffsets.Clear();
+            rateLimitHistory = [];
         }
         finally
         {
@@ -85,6 +94,8 @@ public sealed class SessionLogIndexer(
         {
             await repository.DeleteAllAsync(cancellationToken).ConfigureAwait(false);
             sessions.Clear();
+            rateLimitOffsets.Clear();
+            rateLimitHistory = [];
             Current = LocalUsageAggregate.Empty;
             SnapshotChanged?.Invoke(Current);
             SetHealth(new SourceHealth(
@@ -154,6 +165,11 @@ public sealed class SessionLogIndexer(
             {
                 cancellationToken.ThrowIfCancellationRequested();
                 var failure = await TryProcessFileAsync(files[index], cancellationToken).ConfigureAwait(false);
+                var historyFailure = await TryProcessRateLimitHistoryFileAsync(
+                    files[index],
+                    fromBeginning: true,
+                    cancellationToken).ConfigureAwait(false);
+                failure ??= historyFailure;
                 if (failure is not null)
                 {
                     failedFiles++;
@@ -254,6 +270,11 @@ public sealed class SessionLogIndexer(
                 }
 
                 var failure = await TryProcessFileAsync(path, cancellationToken).ConfigureAwait(false);
+                var historyFailure = await TryProcessRateLimitHistoryFileAsync(
+                    path,
+                    fromBeginning: false,
+                    cancellationToken).ConfigureAwait(false);
+                failure ??= historyFailure;
                 if (failure is not null)
                 {
                     failedFiles++;
@@ -401,6 +422,151 @@ public sealed class SessionLogIndexer(
             return exception;
         }
     }
+
+    private async Task ProcessRateLimitHistoryFileCoreAsync(
+        string fullPath,
+        bool fromBeginning,
+        CancellationToken cancellationToken)
+    {
+        if (codexHome is null || !IsUnderHome(fullPath, codexHome))
+        {
+            return;
+        }
+
+        var information = new FileInfo(fullPath);
+        if (!information.Exists ||
+            (!rateLimitOffsets.ContainsKey(fullPath) &&
+             information.LastWriteTimeUtc < DateTime.UtcNow - MaxRateLimitHistoryAge))
+        {
+            return;
+        }
+
+        var startOffset = fromBeginning
+            ? 0
+            : rateLimitOffsets.GetValueOrDefault(fullPath);
+        var result = await RateLimitHistoryParser.ParseAsync(
+            fullPath,
+            startOffset,
+            cancellationToken).ConfigureAwait(false);
+        rateLimitOffsets[fullPath] = result.CompletedOffset;
+        if (result.Samples.Count > 0)
+        {
+            rateLimitHistory = CompactRateLimitHistory(
+                rateLimitHistory.Concat(result.Samples));
+        }
+    }
+
+    private async Task<Exception?> TryProcessRateLimitHistoryFileAsync(
+        string fullPath,
+        bool fromBeginning,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await ProcessRateLimitHistoryFileCoreAsync(
+                fullPath,
+                fromBeginning,
+                cancellationToken).ConfigureAwait(false);
+            return null;
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception exception)
+        {
+            return exception;
+        }
+    }
+
+    private static IReadOnlyList<UsageHistorySample> CompactRateLimitHistory(
+        IEnumerable<UsageHistorySample> samples)
+    {
+        var cutoff = DateTimeOffset.UtcNow - MaxRateLimitHistoryAge;
+        var candidates = samples
+            .Where(sample => sample.Timestamp >= cutoff &&
+                             sample.Timestamp <= DateTimeOffset.UtcNow.AddMinutes(1) &&
+                             sample.ResetAt > sample.Timestamp &&
+                             sample.RemainingPercent is >= 0 and <= 100)
+            .ToArray();
+        if (candidates.Length == 0)
+        {
+            return [];
+        }
+
+        var resetGroups = candidates
+            .GroupBy(sample => sample.ResetAt)
+            .Select(group => new ResetGroup(group.Key, group.Count()))
+            .OrderBy(group => group.ResetAt)
+            .ToArray();
+        var canonicalResets = new Dictionary<DateTimeOffset, DateTimeOffset>();
+        for (var index = 0; index < resetGroups.Length;)
+        {
+            var end = index + 1;
+            while (end < resetGroups.Length &&
+                   resetGroups[end].ResetAt - resetGroups[end - 1].ResetAt <= ResetTimestampTolerance)
+            {
+                end++;
+            }
+
+            var canonical = resetGroups[index..end]
+                .OrderByDescending(group => group.Count)
+                .ThenByDescending(group => group.ResetAt)
+                .First()
+                .ResetAt;
+            for (var groupIndex = index; groupIndex < end; groupIndex++)
+            {
+                canonicalResets[resetGroups[groupIndex].ResetAt] = canonical;
+            }
+
+            index = end;
+        }
+
+        var compacted = new List<UsageHistorySample>();
+        foreach (var window in candidates
+                     .Select(sample => new UsageHistorySample
+                     {
+                         Timestamp = sample.Timestamp,
+                         RemainingPercent = sample.RemainingPercent,
+                         ResetAt = canonicalResets[sample.ResetAt],
+                     })
+                     .GroupBy(sample => sample.ResetAt)
+                     .OrderBy(group => group.Key))
+        {
+            var windowSamples = new List<UsageHistorySample>();
+            foreach (var sample in window
+                         .GroupBy(candidate => candidate.Timestamp)
+                         .Select(group => group.OrderBy(candidate => candidate.RemainingPercent).First())
+                         .OrderBy(candidate => candidate.Timestamp))
+            {
+                if (windowSamples.Count > 0 &&
+                    sample.RemainingPercent > windowSamples[^1].RemainingPercent)
+                {
+                    continue;
+                }
+
+                if (windowSamples.Count > 1 &&
+                    sample.RemainingPercent == windowSamples[^1].RemainingPercent &&
+                    sample.RemainingPercent == windowSamples[^2].RemainingPercent)
+                {
+                    windowSamples[^1] = sample;
+                }
+                else
+                {
+                    windowSamples.Add(sample);
+                }
+            }
+
+            compacted.AddRange(windowSamples);
+        }
+
+        return compacted
+            .OrderBy(sample => sample.Timestamp)
+            .TakeLast(MaxRateLimitHistorySamples)
+            .ToArray();
+    }
+
+    private sealed record ResetGroup(DateTimeOffset ResetAt, int Count);
 
     private async Task PublishAggregateAsync(CancellationToken cancellationToken)
     {

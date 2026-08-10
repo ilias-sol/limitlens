@@ -100,6 +100,84 @@ public sealed class DashboardViewModelTests
     }
 
     [Fact]
+    public void ImportsTheCurrentWindowsLocalRateLimitCurveAndNormalizesResetDrift()
+    {
+        var now = DateTimeOffset.Now;
+        var reset = now.AddDays(6);
+        var start = reset - TimeSpan.FromDays(7);
+        var snapshot = new AccountUsageSnapshot(
+            "plus",
+            new AccountUsageSummary(),
+            [],
+            [new RateLimitBucket("codex", Primary: new RateLimitWindow(40, 10_080, reset))],
+            null,
+            now);
+        var indexer = new FakeIndexer
+        {
+            RateLimitHistory =
+            [
+                new UsageHistorySample { Timestamp = start, ResetAt = reset.AddSeconds(-6), RemainingPercent = 100 },
+                new UsageHistorySample { Timestamp = start.AddHours(1), ResetAt = reset, RemainingPercent = 80 },
+                new UsageHistorySample { Timestamp = start.AddHours(2), ResetAt = reset, RemainingPercent = 80 },
+                new UsageHistorySample { Timestamp = start.AddHours(3), ResetAt = reset, RemainingPercent = 80 },
+                new UsageHistorySample { Timestamp = start.AddHours(20), ResetAt = reset, RemainingPercent = 70 },
+            ],
+        };
+        var settings = new DashboardSettings();
+
+        using var model = new DashboardViewModel(
+            new FakeAccountClient(snapshot),
+            indexer,
+            new FakeSettingsStore(settings),
+            new FakeStartupService(),
+            settings,
+            "Data");
+
+        Assert.Equal([100, 80, 80, 70, 60], model.ForecastActualPoints.Select(sample => sample.RemainingPercent));
+        Assert.All(model.ForecastActualPoints, sample => Assert.Equal(reset, sample.ResetAt));
+        Assert.Equal(start, model.ForecastActualPoints[0].Timestamp);
+        Assert.True(model.ForecastHasPrediction);
+    }
+
+    [Fact]
+    public void CompactsRepeatedSnapshotsWithoutDiscardingTheWindowStart()
+    {
+        var now = DateTimeOffset.Now;
+        var reset = now.AddHours(1);
+        var start = reset - TimeSpan.FromDays(7);
+        var snapshot = new AccountUsageSnapshot(
+            "plus",
+            new AccountUsageSummary(),
+            [],
+            [new RateLimitBucket("codex", Primary: new RateLimitWindow(40, 10_080, reset))],
+            null,
+            now);
+        var settings = new DashboardSettings
+        {
+            UsageHistory = Enumerable.Range(0, 600)
+                .Select(index => new UsageHistorySample
+                {
+                    Timestamp = start.AddMinutes(index * 10),
+                    ResetAt = reset,
+                    RemainingPercent = 80,
+                })
+                .ToList(),
+        };
+
+        using var model = new DashboardViewModel(
+            new FakeAccountClient(snapshot),
+            new FakeIndexer(),
+            new FakeSettingsStore(settings),
+            new FakeStartupService(),
+            settings,
+            "Data");
+
+        Assert.Equal([80, 80, 60], model.ForecastActualPoints.Select(sample => sample.RemainingPercent));
+        Assert.Equal(start, model.ForecastActualPoints[0].Timestamp);
+        Assert.Equal(now, model.ForecastActualPoints[^1].Timestamp);
+    }
+
+    [Fact]
     public void ShowcaseRepresentsFourDaysWithSixtySevenPercentRemaining()
     {
         var now = DateTimeOffset.Now;
@@ -196,6 +274,7 @@ public sealed class DashboardViewModelTests
     private sealed class FakeIndexer : ISessionLogIndexer
     {
         public LocalUsageAggregate Current { get; } = LocalUsageAggregate.Empty;
+        public IReadOnlyList<UsageHistorySample> RateLimitHistory { get; init; } = [];
         public SourceHealth Health { get; } = SourceHealth.Starting("test");
         public event Action<LocalUsageAggregate>? SnapshotChanged;
         public event Action<SourceHealth>? HealthChanged;

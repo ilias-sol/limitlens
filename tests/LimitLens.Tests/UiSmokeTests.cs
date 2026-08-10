@@ -4,6 +4,7 @@ using System.Windows.Data;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using LimitLens.App;
+using LimitLens.App.Controls;
 using LimitLens.App.Converters;
 using LimitLens.App.Services;
 using LimitLens.App.Taskbar;
@@ -42,6 +43,77 @@ public sealed class UiSmokeTests
             System.Globalization.CultureInfo.InvariantCulture));
 
         Assert.Equal(Color.FromRgb(193, 196, 203), brush.Color);
+    }
+
+    [Fact]
+    public void UsageTrajectoryDrawsTheMeasuredCurveFromTheWindowStart()
+    {
+        Exception? failure = null;
+        var thread = new Thread(() =>
+        {
+            try
+            {
+                var now = DateTimeOffset.Now;
+                var reset = now.AddDays(6);
+                var start = reset - TimeSpan.FromDays(7);
+                var points = new[]
+                {
+                    new UsageHistorySample { Timestamp = start, ResetAt = reset, RemainingPercent = 100 },
+                    new UsageHistorySample { Timestamp = start.AddHours(2), ResetAt = reset, RemainingPercent = 88 },
+                    new UsageHistorySample { Timestamp = start.AddHours(5), ResetAt = reset, RemainingPercent = 73 },
+                    new UsageHistorySample { Timestamp = start.AddHours(9), ResetAt = reset, RemainingPercent = 61 },
+                    new UsageHistorySample { Timestamp = start.AddHours(15), ResetAt = reset, RemainingPercent = 50 },
+                    new UsageHistorySample { Timestamp = now, ResetAt = reset, RemainingPercent = 41 },
+                };
+                var chart = new UsageForecastChart
+                {
+                    WindowStart = start,
+                    ResetAt = reset,
+                    RemainingPercent = 41,
+                    ElapsedPercent = (now - start).TotalSeconds / (reset - start).TotalSeconds * 100,
+                    ActualPoints = points,
+                    ActualBrush = new SolidColorBrush(Color.FromRgb(0x68, 0xA4, 0xFF)),
+                    CurrentPointBrush = new SolidColorBrush(Color.FromRgb(0xFF, 0xB1, 0x8C)),
+                    GridBrush = new SolidColorBrush(Color.FromArgb(0x20, 0x80, 0x80, 0x80)),
+                    LabelBrush = new SolidColorBrush(Color.FromRgb(0x70, 0x70, 0x70)),
+                    TargetBrush = new SolidColorBrush(Color.FromRgb(0x90, 0x90, 0x90)),
+                };
+
+                var bitmap = RenderElement(chart, 390, 190);
+                var stride = bitmap.PixelWidth * 4;
+                var pixels = new byte[stride * bitmap.PixelHeight];
+                bitmap.CopyPixels(pixels, stride, 0);
+                var measuredXs = new List<int>();
+                for (var y = 0; y < bitmap.PixelHeight; y++)
+                {
+                    for (var x = 0; x < bitmap.PixelWidth; x++)
+                    {
+                        var offset = y * stride + x * 4;
+                        if (pixels[offset] > 220 &&
+                            pixels[offset + 1] > 120 &&
+                            pixels[offset + 2] < 150 &&
+                            pixels[offset + 3] > 100)
+                        {
+                            measuredXs.Add(x);
+                        }
+                    }
+                }
+
+                Assert.NotEmpty(measuredXs);
+                Assert.InRange(measuredXs.Min(), 39, 48);
+                Assert.True(measuredXs.Max() > 80, "The measured curve must reach the current point.");
+                CaptureIfRequested(chart, "trajectory-history", 390, 190);
+            }
+            catch (Exception exception)
+            {
+                failure = exception;
+            }
+        });
+        thread.IsBackground = true;
+        thread.SetApartmentState(ApartmentState.STA);
+        thread.Start();
+        Assert.True(thread.Join(TimeSpan.FromSeconds(10)), "The trajectory render test timed out.");
+        Assert.Null(failure);
     }
 
     [Fact]
@@ -187,6 +259,18 @@ public sealed class UiSmokeTests
         }
 
         Directory.CreateDirectory(directory);
+        var bitmap = RenderElement(element, width, height);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        using var stream = File.Create(Path.Combine(directory, $"{name}.png"));
+        encoder.Save(stream);
+    }
+
+    private static RenderTargetBitmap RenderElement(
+        FrameworkElement element,
+        int width,
+        int height)
+    {
         element.Measure(new Size(width, height));
         element.Arrange(new Rect(0, 0, width, height));
         element.UpdateLayout();
@@ -198,10 +282,7 @@ public sealed class UiSmokeTests
         }
         var bitmap = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
         bitmap.Render(visual);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        using var stream = File.Create(Path.Combine(directory, $"{name}.png"));
-        encoder.Save(stream);
+        return bitmap;
     }
 
     private static void UpdateBindings(DependencyObject root)
@@ -242,6 +323,7 @@ public sealed class UiSmokeTests
     private sealed class FakeIndexer : ISessionLogIndexer
     {
         public LocalUsageAggregate Current { get; } = LocalUsageAggregate.Empty;
+        public IReadOnlyList<UsageHistorySample> RateLimitHistory { get; } = [];
         public SourceHealth Health { get; } = SourceHealth.Starting("test");
         public event Action<LocalUsageAggregate>? SnapshotChanged;
         public event Action<SourceHealth>? HealthChanged;

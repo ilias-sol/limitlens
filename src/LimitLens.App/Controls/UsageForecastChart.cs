@@ -13,6 +13,7 @@ namespace LimitLens.App.Controls;
 
 public sealed class UsageForecastChart : FrameworkElement
 {
+    private static readonly TimeSpan ResetTimestampTolerance = TimeSpan.FromMinutes(2);
     private readonly List<RenderedSample> renderedSamples = [];
 
     public UsageForecastChart()
@@ -198,13 +199,18 @@ public sealed class UsageForecastChart : FrameworkElement
 
         var points = new List<Point>();
         var samples = (ActualPoints ?? [])
-            .Where(sample => sample.ResetAt == reset && sample.Timestamp >= start && sample.Timestamp <= reset)
+            .Where(sample => (sample.ResetAt - reset).Duration() <= ResetTimestampTolerance &&
+                             sample.Timestamp >= start - ResetTimestampTolerance &&
+                             sample.Timestamp <= reset)
             .OrderBy(sample => sample.Timestamp)
             .ToArray();
         for (var index = 0; index < samples.Length; index++)
         {
             var sample = samples[index];
-            var fraction = Math.Clamp((sample.Timestamp - start).TotalSeconds / (reset - start).TotalSeconds, 0, 1);
+            var fraction = Math.Clamp(
+                (sample.Timestamp - start).TotalSeconds / (reset - start).TotalSeconds,
+                0,
+                1);
             var point = new Point(left + plotWidth * fraction, Y(sample.RemainingPercent, top, plotHeight));
             if (points.Count == 0 || point.X > points[^1].X + 0.5)
             {

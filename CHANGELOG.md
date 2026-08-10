@@ -4,6 +4,13 @@ All notable changes to Limit Lens are documented here.
 
 ## Unreleased
 
+### Fixed
+
+- Backfill the current usage trajectory from privacy-safe rate-limit snapshots
+  already present in local Codex session metadata.
+- Preserve the full reset-window curve by compacting unchanged snapshots and
+  tolerating small reset-timestamp drift.
+
 ## 0.1.0 - 2026-08-09
 
 Initial public release.
