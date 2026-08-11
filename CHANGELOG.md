@@ -10,6 +10,8 @@ All notable changes to Limit Lens are documented here.
   already present in local Codex session metadata.
 - Preserve the full reset-window curve by compacting unchanged snapshots and
   tolerating small reset-timestamp drift.
+- Reset local trajectory history cleanly when a session log is rewritten,
+  truncated, or removed.
 
 ## 0.1.0 - 2026-08-09
 

@@ -34,6 +34,11 @@ internal sealed class ShowcaseSessionLogIndexer : ISessionLogIndexer
         DateTimeOffset.Now);
 
     public event Action<LocalUsageAggregate>? SnapshotChanged;
+    event Action? ISessionLogIndexer.RateLimitHistoryInvalidated
+    {
+        add { }
+        remove { }
+    }
     public event Action<SourceHealth>? HealthChanged;
     public event Action<double>? BackfillProgressChanged;
 

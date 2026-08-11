@@ -326,6 +326,11 @@ public sealed class UiSmokeTests
         public IReadOnlyList<UsageHistorySample> RateLimitHistory { get; } = [];
         public SourceHealth Health { get; } = SourceHealth.Starting("test");
         public event Action<LocalUsageAggregate>? SnapshotChanged;
+        event Action? ISessionLogIndexer.RateLimitHistoryInvalidated
+        {
+            add { }
+            remove { }
+        }
         public event Action<SourceHealth>? HealthChanged;
         public event Action<double>? BackfillProgressChanged;
         public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
