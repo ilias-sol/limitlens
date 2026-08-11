@@ -19,6 +19,7 @@ public interface ISessionLogIndexer : IAsyncDisposable
     IReadOnlyList<UsageHistorySample> RateLimitHistory { get; }
     SourceHealth Health { get; }
     event Action<LocalUsageAggregate>? SnapshotChanged;
+    event Action? RateLimitHistoryInvalidated;
     event Action<SourceHealth>? HealthChanged;
     event Action<double>? BackfillProgressChanged;
     Task StartAsync(CancellationToken cancellationToken = default);

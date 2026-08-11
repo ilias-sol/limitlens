@@ -178,6 +178,52 @@ public sealed class DashboardViewModelTests
     }
 
     [Fact]
+    public void ClearsPersistedHistoryWhenLocalRateLimitHistoryIsInvalidated()
+    {
+        var now = DateTimeOffset.Now;
+        var reset = now.AddHours(8);
+        var staleTimestamp = now.AddMinutes(-50);
+        var snapshot = new AccountUsageSnapshot(
+            "plus",
+            new AccountUsageSummary(),
+            [],
+            [new RateLimitBucket("codex", Primary: new RateLimitWindow(60, 720, reset))],
+            null,
+            now);
+        var settings = new DashboardSettings
+        {
+            UsageHistory =
+            [
+                new UsageHistorySample { Timestamp = staleTimestamp, ResetAt = reset, RemainingPercent = 80 },
+            ],
+        };
+        var indexer = new FakeIndexer
+        {
+            RateLimitHistory =
+            [
+                new UsageHistorySample { Timestamp = now.AddMinutes(-40), ResetAt = reset, RemainingPercent = 70 },
+                new UsageHistorySample { Timestamp = now.AddMinutes(-20), ResetAt = reset, RemainingPercent = 50 },
+            ],
+        };
+
+        using var model = new DashboardViewModel(
+            new FakeAccountClient(snapshot),
+            indexer,
+            new FakeSettingsStore(settings),
+            new FakeStartupService(),
+            settings,
+            "Data");
+
+        Assert.Contains(settings.UsageHistory, sample => sample.Timestamp == staleTimestamp);
+
+        indexer.RaiseRateLimitHistoryInvalidated();
+
+        Assert.DoesNotContain(settings.UsageHistory, sample => sample.Timestamp == staleTimestamp);
+        Assert.Contains(settings.UsageHistory, sample => sample.Timestamp == now.AddMinutes(-40));
+        Assert.Contains(settings.UsageHistory, sample => sample.Timestamp == now);
+    }
+
+    [Fact]
     public void ShowcaseRepresentsFourDaysWithSixtySevenPercentRemaining()
     {
         var now = DateTimeOffset.Now;
@@ -277,6 +323,7 @@ public sealed class DashboardViewModelTests
         public IReadOnlyList<UsageHistorySample> RateLimitHistory { get; init; } = [];
         public SourceHealth Health { get; } = SourceHealth.Starting("test");
         public event Action<LocalUsageAggregate>? SnapshotChanged;
+        public event Action? RateLimitHistoryInvalidated;
         public event Action<SourceHealth>? HealthChanged;
         public event Action<double>? BackfillProgressChanged;
         public Task StartAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
@@ -284,6 +331,7 @@ public sealed class DashboardViewModelTests
         public Task DeleteAllAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         public void Raise() => SnapshotChanged?.Invoke(Current);
+        public void RaiseRateLimitHistoryInvalidated() => RateLimitHistoryInvalidated?.Invoke();
         public void RaiseHealth() => HealthChanged?.Invoke(Health);
         public void RaiseProgress() => BackfillProgressChanged?.Invoke(1);
     }

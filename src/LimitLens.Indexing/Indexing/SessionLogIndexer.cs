@@ -28,7 +28,7 @@ public sealed class SessionLogIndexer(
             SingleWriter = false,
         });
     private readonly List<FileSystemWatcher> watchers = [];
-    private readonly Dictionary<string, long> rateLimitOffsets =
+    private readonly Dictionary<string, RateLimitFileState> rateLimitFiles =
         new(StringComparer.OrdinalIgnoreCase);
     private readonly SemaphoreSlim scanGate = new(1, 1);
     private readonly CancellationTokenSource lifetime = new();
@@ -44,6 +44,7 @@ public sealed class SessionLogIndexer(
     public SourceHealth Health { get; private set; } = SourceHealth.Starting("Preparing local analytics…");
 
     public event Action<LocalUsageAggregate>? SnapshotChanged;
+    public event Action? RateLimitHistoryInvalidated;
     public event Action<SourceHealth>? HealthChanged;
     public event Action<double>? BackfillProgressChanged;
 
@@ -74,7 +75,7 @@ public sealed class SessionLogIndexer(
             SetHealth(SourceHealth.Starting("Rebuilding local analytics…"));
             await repository.DeleteAllAsync(cancellationToken).ConfigureAwait(false);
             sessions.Clear();
-            rateLimitOffsets.Clear();
+            rateLimitFiles.Clear();
             rateLimitHistory = [];
         }
         finally
@@ -94,7 +95,7 @@ public sealed class SessionLogIndexer(
         {
             await repository.DeleteAllAsync(cancellationToken).ConfigureAwait(false);
             sessions.Clear();
-            rateLimitOffsets.Clear();
+            rateLimitFiles.Clear();
             rateLimitHistory = [];
             Current = LocalUsageAggregate.Empty;
             SnapshotChanged?.Invoke(Current);
@@ -147,6 +148,11 @@ public sealed class SessionLogIndexer(
         try
         {
             var files = EnumerateSessionFiles().OrderBy(path => path, StringComparer.OrdinalIgnoreCase).ToArray();
+            if (PruneRateLimitHistoryFiles(files))
+            {
+                RateLimitHistoryInvalidated?.Invoke();
+            }
+
             if (files.Length == 0)
             {
                 Current = await repository.LoadAggregateAsync(cancellationToken).ConfigureAwait(false);
@@ -256,6 +262,11 @@ public sealed class SessionLogIndexer(
             {
                 pending.Clear();
                 return;
+            }
+
+            if (PruneRateLimitHistoryFiles(EnumerateSessionFiles()))
+            {
+                RateLimitHistoryInvalidated?.Invoke();
             }
 
             var paths = pending.ToArray();
@@ -434,26 +445,65 @@ public sealed class SessionLogIndexer(
         }
 
         var information = new FileInfo(fullPath);
-        if (!information.Exists ||
-            (!rateLimitOffsets.ContainsKey(fullPath) &&
-             information.LastWriteTimeUtc < DateTime.UtcNow - MaxRateLimitHistoryAge))
+        if (!information.Exists)
         {
             return;
         }
 
-        var startOffset = fromBeginning
-            ? 0
-            : rateLimitOffsets.GetValueOrDefault(fullPath);
+        if (!fromBeginning &&
+            !rateLimitFiles.ContainsKey(fullPath) &&
+            information.LastWriteTimeUtc < DateTime.UtcNow - MaxRateLimitHistoryAge)
+        {
+            return;
+        }
+
+        var previous = rateLimitFiles.GetValueOrDefault(fullPath);
+        var rewound = previous is not null &&
+            (information.Length < previous.Length ||
+             information.Length < previous.CompletedOffset ||
+             information.CreationTimeUtc != previous.CreationTimeUtc ||
+             information.LastWriteTimeUtc < previous.LastWriteTimeUtc);
+        var startOffset = fromBeginning || rewound ? 0 : previous?.CompletedOffset ?? 0;
         var result = await RateLimitHistoryParser.ParseAsync(
             fullPath,
             startOffset,
             cancellationToken).ConfigureAwait(false);
-        rateLimitOffsets[fullPath] = result.CompletedOffset;
-        if (result.Samples.Count > 0)
+
+        var fileSamples = (rewound ? [] : previous?.Samples ?? [])
+            .Concat(result.Samples);
+        rateLimitFiles[fullPath] = new RateLimitFileState(
+            result.CompletedOffset,
+            information.Length,
+            information.LastWriteTimeUtc,
+            information.CreationTimeUtc,
+            CompactRateLimitHistory(fileSamples));
+        rateLimitHistory = CompactRateLimitHistory(
+            rateLimitFiles.Values.SelectMany(file => file.Samples));
+        if (rewound)
         {
-            rateLimitHistory = CompactRateLimitHistory(
-                rateLimitHistory.Concat(result.Samples));
+            RateLimitHistoryInvalidated?.Invoke();
         }
+    }
+
+    private bool PruneRateLimitHistoryFiles(IEnumerable<string> existingPaths)
+    {
+        var existing = existingPaths.ToHashSet(StringComparer.OrdinalIgnoreCase);
+        var removed = rateLimitFiles.Keys
+            .Where(path => !existing.Contains(path))
+            .ToArray();
+        if (removed.Length == 0)
+        {
+            return false;
+        }
+
+        foreach (var path in removed)
+        {
+            rateLimitFiles.Remove(path);
+        }
+
+        rateLimitHistory = CompactRateLimitHistory(
+            rateLimitFiles.Values.SelectMany(file => file.Samples));
+        return true;
     }
 
     private async Task<Exception?> TryProcessRateLimitHistoryFileAsync(
@@ -565,6 +615,13 @@ public sealed class SessionLogIndexer(
             .TakeLast(MaxRateLimitHistorySamples)
             .ToArray();
     }
+
+    private sealed record RateLimitFileState(
+        long CompletedOffset,
+        long Length,
+        DateTime LastWriteTimeUtc,
+        DateTime CreationTimeUtc,
+        IReadOnlyList<UsageHistorySample> Samples);
 
     private sealed record ResetGroup(DateTimeOffset ResetAt, int Count);
 

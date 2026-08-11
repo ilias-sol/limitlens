@@ -60,6 +60,63 @@ public sealed class SessionLogIndexerTests
     }
 
     [Fact]
+    public async Task RebuildsRateLimitHistoryWhenSessionFileIsTruncated()
+    {
+        using var folder = new TempFolder();
+        var sessions = Directory.CreateDirectory(folder.GetPath("sessions"));
+        var path = Path.Combine(sessions.FullName, "history.jsonl");
+        var reset = DateTimeOffset.UtcNow.AddDays(6);
+        var start = reset - TimeSpan.FromDays(7);
+        var metadata = JsonSerializer.Serialize(new
+        {
+            timestamp = start,
+            type = "session_meta",
+            payload = new { id = "history-session", timestamp = start, cwd = @"C:\Work\SafeProject" },
+        });
+        await File.WriteAllLinesAsync(
+            path,
+            new[]
+            {
+                metadata,
+                RateLimitLine(start, 0, reset),
+                RateLimitLine(start.AddHours(1), 20, reset),
+                RateLimitLine(start.AddHours(2), 40, reset),
+                RateLimitLine(start.AddHours(3), 60, reset),
+            },
+            Utf8NoBom);
+
+        await using var indexer = new SessionLogIndexer(
+            new SelectivelyFailingRepository("never"),
+            new DashboardSettings
+            {
+                CodexHomePath = folder.Path,
+                PrivacySalt = Salt,
+            });
+        var invalidationCount = 0;
+        indexer.RateLimitHistoryInvalidated += () => Interlocked.Increment(ref invalidationCount);
+
+        await indexer.StartAsync();
+        Assert.Contains(indexer.RateLimitHistory, sample => sample.Timestamp == start.AddHours(3));
+
+        await File.WriteAllLinesAsync(
+            path,
+            new[]
+            {
+                metadata,
+                RateLimitLine(start, 0, reset),
+                RateLimitLine(start.AddHours(1), 30, reset),
+            },
+            Utf8NoBom);
+
+        await WaitUntilAsync(() =>
+            Volatile.Read(ref invalidationCount) > 0 &&
+            indexer.RateLimitHistory.All(sample => sample.Timestamp < start.AddHours(2)) &&
+            indexer.RateLimitHistory.Any(sample => sample.Timestamp == start.AddHours(1) && sample.RemainingPercent == 70));
+
+        Assert.DoesNotContain(indexer.RateLimitHistory, sample => sample.Timestamp == start.AddHours(3));
+    }
+
+    [Fact]
     public async Task LiveWorkerContinuesAfterOneSessionFileFails()
     {
         using var folder = new TempFolder();

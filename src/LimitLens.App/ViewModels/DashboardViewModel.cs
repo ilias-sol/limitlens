@@ -65,6 +65,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         accountClient.SnapshotChanged += OnAccountSnapshotChanged;
         accountClient.HealthChanged += OnAccountHealthChanged;
         sessionIndexer.SnapshotChanged += OnLocalSnapshotChanged;
+        sessionIndexer.RateLimitHistoryInvalidated += OnRateLimitHistoryInvalidated;
         sessionIndexer.HealthChanged += OnLocalHealthChanged;
         sessionIndexer.BackfillProgressChanged += OnBackfillProgressChanged;
 
@@ -655,6 +656,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         accountClient.SnapshotChanged -= OnAccountSnapshotChanged;
         accountClient.HealthChanged -= OnAccountHealthChanged;
         sessionIndexer.SnapshotChanged -= OnLocalSnapshotChanged;
+        sessionIndexer.RateLimitHistoryInvalidated -= OnRateLimitHistoryInvalidated;
         sessionIndexer.HealthChanged -= OnLocalHealthChanged;
         sessionIndexer.BackfillProgressChanged -= OnBackfillProgressChanged;
     }
@@ -677,6 +679,13 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     private void OnLocalSnapshotChanged(LocalUsageAggregate snapshot) => RunOnUi(() =>
     {
         local = snapshot;
+        RefreshDerived();
+    });
+
+    private void OnRateLimitHistoryInvalidated() => RunOnUi(() =>
+    {
+        settings.UsageHistory = [];
+        QueueSettingsSave();
         RefreshDerived();
     });
 
