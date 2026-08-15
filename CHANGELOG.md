@@ -2,7 +2,7 @@
 
 All notable changes to Limit Lens are documented here.
 
-## Unreleased
+## 0.1.1 - 2026-08-15
 
 ### Fixed
 
@@ -12,6 +12,8 @@ All notable changes to Limit Lens are documented here.
   tolerating small reset-timestamp drift.
 - Reset local trajectory history cleanly when a session log is rewritten,
   truncated, or removed.
+- Repair missing or stale Windows startup registration from the saved
+  preference, including after reinstalling or moving the executable.
 
 ## 0.1.0 - 2026-08-09
 
