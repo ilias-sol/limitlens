@@ -1,5 +1,6 @@
 using System.IO;
 using System.Net.NetworkInformation;
+using System.Security;
 using System.Windows;
 using LimitLens.App.Services;
 using LimitLens.App.Taskbar;
@@ -76,27 +77,20 @@ public partial class App : System.Windows.Application
             {
                 storagePaths = AppStoragePaths.Detect();
                 storagePaths.EnsureCreated();
-                var isFirstRun = !File.Exists(storagePaths.SettingsPath);
                 settingsStore = new JsonSettingsStore(storagePaths);
                 settings = await settingsStore.LoadAsync();
                 startupService = new StartupRegistrationService();
-                if (isFirstRun)
+                try
                 {
-                    try
-                    {
-                        startupService.SetEnabled(true);
-                    }
-                    catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException)
-                    {
-                        // Keep the app usable when startup registration is unavailable.
-                    }
+                    settings.StartWithWindows = StartupRegistrationReconciler.Reconcile(
+                        startupService,
+                        settings.StartWithWindows);
                 }
-
-                settings.StartWithWindows = startupService.IsEnabled;
-                if (isFirstRun)
+                catch (Exception exception) when (exception is InvalidOperationException or UnauthorizedAccessException or SecurityException)
                 {
-                    await settingsStore.SaveAsync(settings);
+                    // Keep the app usable when startup registration is unavailable.
                 }
+                await settingsStore.SaveAsync(settings);
 
                 repository = new SqliteUsageRepository(storagePaths);
                 sessionIndexer = new SessionLogIndexer(repository, settings);

@@ -18,22 +18,45 @@ public sealed class StartupRegistrationService : IStartupRegistrationService
         get
         {
             using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: false);
-            return key?.GetValue(ValueName) is string value && !string.IsNullOrWhiteSpace(value);
+            var executable = GetExecutablePath();
+            return key?.GetValue(ValueName) is string value &&
+                IsCommandForExecutable(value, executable);
         }
     }
 
     public void SetEnabled(bool enabled)
     {
-        using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true);
         if (enabled)
         {
-            var executable = Environment.ProcessPath
-                ?? throw new InvalidOperationException("The application executable path is unavailable.");
-            key.SetValue(ValueName, $"\"{executable}\" --startup", RegistryValueKind.String);
+            using var key = Registry.CurrentUser.CreateSubKey(RunKeyPath, writable: true)
+                ?? throw new InvalidOperationException("The Windows startup registry key is unavailable.");
+            key.SetValue(ValueName, BuildCommand(GetExecutablePath()), RegistryValueKind.String);
         }
         else
         {
-            key.DeleteValue(ValueName, throwOnMissingValue: false);
+            using var key = Registry.CurrentUser.OpenSubKey(RunKeyPath, writable: true);
+            key?.DeleteValue(ValueName, throwOnMissingValue: false);
         }
+    }
+
+    internal static string BuildCommand(string executablePath) => $"\"{executablePath}\" --startup";
+
+    internal static bool IsCommandForExecutable(string command, string executablePath) =>
+        string.Equals(command.Trim(), BuildCommand(executablePath), StringComparison.OrdinalIgnoreCase);
+
+    private static string GetExecutablePath() => Environment.ProcessPath
+        ?? throw new InvalidOperationException("The application executable path is unavailable.");
+}
+
+internal static class StartupRegistrationReconciler
+{
+    public static bool Reconcile(IStartupRegistrationService startupService, bool desiredState)
+    {
+        if (startupService.IsEnabled != desiredState)
+        {
+            startupService.SetEnabled(desiredState);
+        }
+
+        return startupService.IsEnabled;
     }
 }

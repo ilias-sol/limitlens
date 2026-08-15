@@ -19,7 +19,7 @@ The normal release contains only the installer, portable ZIP, and checksum
 file:
 
 ```powershell
-./scripts/build-release.ps1 -Version 0.1.0
+./scripts/build-release.ps1 -Version 0.1.1
 ```
 
 Use `-SkipInstaller` when Inno Setup 6 is unavailable. This produces a verified
@@ -33,7 +33,7 @@ fails.
 Showcase packages are internal screenshot/test artifacts only:
 
 ```powershell
-./scripts/build-release.ps1 -Version 0.1.0 -SkipInstaller -IncludeShowcase
+./scripts/build-release.ps1 -Version 0.1.1 -SkipInstaller -IncludeShowcase
 ```
 
 Never attach a showcase package, extracted staging directory, `Data` folder,
@@ -49,9 +49,9 @@ database, or settings file to a public release.
    development files.
 4. Confirm the README screenshot uses synthetic data and contains no unwanted
    system or account details.
-5. Tag the reviewed commit as `v0.1.0` and push the tag. The workflow builds in
+5. Tag the reviewed commit as `v0.1.1` and push the tag. The workflow builds in
    a clean runner and creates a draft GitHub release.
 6. Review the draft's files, generated notes, checksums, and unsigned-binary
    warning before publishing.
 
-Version 0.1.0 is unsigned and may trigger Microsoft Defender SmartScreen.
+Version 0.1.1 is unsigned and may trigger Microsoft Defender SmartScreen.
