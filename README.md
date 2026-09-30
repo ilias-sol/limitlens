@@ -88,7 +88,7 @@ maintainer testing and are not end-user release assets.
 The recommended per-user installer requires no administrator access. It adds
 Limit Lens to the Start Menu and provides a normal uninstall entry.
 
-Version 0.1.1 is not code-signed, so Windows may display a Microsoft Defender
+Version 0.1.4 is not code-signed, so Windows may display a Microsoft Defender
 SmartScreen warning. Verify the download against the release's
 `SHA256SUMS.txt` before running it.
 
@@ -106,7 +106,7 @@ Run the following and compare the resulting hash with the matching line in
 `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash .\LimitLens-Setup-0.1.1-win-x64.exe -Algorithm SHA256
+Get-FileHash .\LimitLens-Setup-0.1.4-win-x64.exe -Algorithm SHA256
 ```
 
 ## Requirements
@@ -130,18 +130,18 @@ returned windows. See the [official usage-limit documentation](https://learn.cha
 
 ## Build from source
 
-Install the .NET 10 SDK, then run:
+Install the .NET SDK version specified in `global.json`, then run:
 
 ```powershell
-dotnet restore LimitLens.slnx --locked-mode
-dotnet build LimitLens.slnx -c Debug --no-restore
-dotnet test LimitLens.slnx -c Debug --no-build --no-restore
+dotnet restore LimitLens.slnx --locked-mode -p:Configuration=Release
+dotnet build LimitLens.slnx -c Release --no-restore
+dotnet test LimitLens.slnx -c Release --no-build --no-restore
 ```
 
 Create the installer and portable ZIP with:
 
 ```powershell
-./scripts/build-release.ps1 -Version 0.1.1
+./scripts/build-release.ps1 -Version 0.1.4
 ```
 
 Pass `-SkipInstaller` when Inno Setup 6 is not installed.
@@ -150,7 +150,7 @@ Maintainers can additionally create the isolated, synthetic showcase package
 for screenshot testing. It must not be attached to a public release:
 
 ```powershell
-./scripts/build-release.ps1 -Version 0.1.1 -SkipInstaller -IncludeShowcase
+./scripts/build-release.ps1 -Version 0.1.4 -SkipInstaller -IncludeShowcase
 ```
 
 ## Data locations

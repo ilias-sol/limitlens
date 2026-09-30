@@ -375,6 +375,8 @@ public sealed class UiSmokeTests
 
     private static void CaptureIfRequested(FrameworkElement element, string name, int width, int height)
     {
+        // Layout checks must behave identically with and without optional screenshot export.
+        var bitmap = RenderElement(element, width, height);
         var directory = Environment.GetEnvironmentVariable("LIMIT_LENS_CAPTURE_DIR");
         if (string.IsNullOrWhiteSpace(directory))
         {
@@ -382,7 +384,6 @@ public sealed class UiSmokeTests
         }
 
         Directory.CreateDirectory(directory);
-        var bitmap = RenderElement(element, width, height);
         var encoder = new PngBitmapEncoder();
         encoder.Frames.Add(BitmapFrame.Create(bitmap));
         using var stream = File.Create(Path.Combine(directory, $"{name}.png"));

@@ -2,7 +2,7 @@
 
 All notable changes to Limit Lens are documented here.
 
-## Unreleased
+## 0.1.4 - 2026-09-30
 
 ### Added
 
@@ -27,6 +27,8 @@ All notable changes to Limit Lens are documented here.
 - Synchronize taskbar content size with host resizing and DPI changes, resume
   colour updates after reload, and handle theme changes on the UI thread.
 - Mute alerts until the earliest upcoming reset.
+- Pin the build SDK and refresh the release dependency lock so newer SDKs no
+  longer break locked restores in CI.
 
 ## 0.1.1 - 2026-08-15
 

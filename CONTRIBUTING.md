@@ -5,10 +5,11 @@ x64 compatible.
 
 ## Development setup
 
-1. Install the .NET 10 SDK on Windows 10 or Windows 11.
-2. Run `dotnet restore LimitLens.slnx --locked-mode`.
-3. Run `dotnet build LimitLens.slnx -c Debug --no-restore`.
-4. Run `dotnet test LimitLens.slnx -c Debug --no-build --no-restore`.
+1. Install the .NET SDK version specified in `global.json` on Windows 10 or
+   Windows 11. CI uses the same pinned version.
+2. Run `dotnet restore LimitLens.slnx --locked-mode -p:Configuration=Release`.
+3. Run `dotnet build LimitLens.slnx -c Release --no-restore`.
+4. Run `dotnet test LimitLens.slnx -c Release --no-build --no-restore`.
 5. Run `./scripts/audit-release.ps1 -IncludeGitMetadata` before submitting a
    release-related change.
 
