@@ -189,20 +189,33 @@
                     <Border Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
                             BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="15,13" Margin="0,0,0,10">
                         <StackPanel>
+                            <StackPanel Visibility="{Binding ShowDualLimitIndicators, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid>
+                                    <TextBlock Text="5-hour usage remaining" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding TaskbarPrimaryLimit.PercentageText}" HorizontalAlignment="Right" FontSize="21" FontWeight="SemiBold" />
+                                </Grid>
+                                <ProgressBar Style="{StaticResource FlyoutProgress}" Maximum="100"
+                                             Value="{Binding TaskbarPrimaryLimit.ProgressValue, Mode=OneWay}" Foreground="{Binding FiveHourLimitBrush}" Margin="0,13,0,9" />
+                                <TextBlock Text="{Binding TaskbarPrimaryLimit.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding TaskbarPrimaryLimit.ResetText}" />
+                                <Border Height="1" Background="{DynamicResource FlyoutDivider}" Margin="0,12,0,12" />
+                            </StackPanel>
                             <Grid>
-                                <TextBlock x:Name="UsageRemainingLabel" Text="Usage remaining" FontSize="14"
+                                <TextBlock x:Name="UsageRemainingLabel" Text="{Binding UsageRemainingTitle}" FontSize="14"
                                            FontWeight="SemiBold" VerticalAlignment="Center" />
-                                <TextBlock Text="{Binding ForecastRemainingPercent, StringFormat={}{0:0}%}"
+                                <TextBlock Text="{Binding DashboardMainLimit.PercentageText}"
                                            HorizontalAlignment="Right" FontSize="21" FontWeight="SemiBold" />
                             </Grid>
                             <ProgressBar x:Name="UsageRemainingProgress" Style="{StaticResource FlyoutProgress}" Maximum="100"
-                                         Value="{Binding ForecastRemainingPercent, Mode=OneWay}"
-                                         Foreground="{Binding UsageRemainingBrush}"
+                                         Value="{Binding DashboardMainLimit.ProgressValue, Mode=OneWay}"
+                                         Foreground="{Binding DashboardMainLimitBrush}"
                                          Margin="0,13,0,9" />
                             <Grid>
-                                <TextBlock Text="{Binding WidgetResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12" />
-                                <TextBlock Text="{Binding FreshnessText}" Style="{StaticResource FlyoutCaption}"
-                                           HorizontalAlignment="Right" FontSize="11" />
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding DashboardMainLimit.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding DashboardMainLimit.ResetText}" />
+                                <TextBlock Grid.Column="1" Text="{Binding FreshnessText}" Style="{StaticResource FlyoutCaption}"
+                                           Margin="8,0,0,0" FontSize="11" />
                             </Grid>
                         </StackPanel>
                     </Border>
@@ -210,7 +223,7 @@
                     <Border Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
                             BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="14" Margin="0,0,0,10">
                         <StackPanel>
-                            <TextBlock Text="Usage trajectory" Style="{StaticResource FlyoutSectionTitle}" />
+                            <TextBlock Text="{Binding ForecastChartTitle}" Style="{StaticResource FlyoutSectionTitle}" />
                             <controls:UsageForecastChart Height="177" Margin="0,8,0,6"
                                 RemainingPercent="{Binding ForecastRemainingPercent}"
                                 ElapsedPercent="{Binding ForecastElapsedPercent}"
@@ -225,8 +238,18 @@
                                 EstimateBrush="{DynamicResource FlyoutPrediction}"
                                 TargetBrush="{DynamicResource FlyoutTarget}"
                                 GridBrush="{DynamicResource FlyoutGrid}"
-                                LabelBrush="{DynamicResource FlyoutDim}" />
-                            <StackPanel Orientation="Horizontal">
+                                LabelBrush="{DynamicResource FlyoutDim}"
+                                Visibility="{Binding HasForecastWindow, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <TextBlock Text="{Binding ForecastSummary}" FontSize="12" TextWrapping="Wrap"
+                                       Foreground="{DynamicResource FlyoutMuted}" Margin="0,16,0,16">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Visibility" Value="Collapsed" />
+                                        <Style.Triggers><DataTrigger Binding="{Binding HasForecastWindow}" Value="False"><Setter Property="Visibility" Value="Visible" /></DataTrigger></Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
+                            <StackPanel Orientation="Horizontal" Visibility="{Binding HasForecastWindow, Converter={StaticResource BooleanToVisibilityConverter}}">
                                 <TextBlock Text="— Actual" Foreground="{DynamicResource FlyoutBlue}" FontSize="11" Margin="0,0,14,0" />
                                 <TextBlock Text="– – Prediction" Foreground="{DynamicResource FlyoutPrediction}" FontSize="11" Margin="0,0,14,0" />
                                 <TextBlock Text="··· Reset pace" Foreground="{DynamicResource FlyoutTarget}" FontSize="11" />
@@ -276,19 +299,78 @@
             <Grid Visibility="{Binding ShowWidgetSettings, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                     <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="15,4,0,14" />
+                    <ScrollViewer x:Name="SettingsScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto"
+                                  HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
                     <Border Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
-                            Grid.Row="1" BorderThickness="{DynamicResource FlyoutCardBorderThickness}"
+                            BorderThickness="{DynamicResource FlyoutCardBorderThickness}"
                             CornerRadius="8" Padding="16,8,16,14">
                         <StackPanel>
                             <CheckBox IsChecked="{Binding UseLightTheme}" Style="{StaticResource FlyoutToggle}">
                                 <TextBlock x:Name="AppearanceLabel" Text="Light appearance"
                                            Foreground="{DynamicResource FlyoutText}" FontSize="13" />
                             </CheckBox>
+                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
+                            <Grid Margin="0,10,0,8">
+                                <TextBlock Text="Taskbar position" FontSize="13" VerticalAlignment="Center" />
+                                <Button x:Name="ResetTaskbarPositionButton"
+                                        Style="{StaticResource FlyoutBackButton}" HorizontalAlignment="Right"
+                                        Command="{Binding ResetTaskbarPositionCommand}">
+                                    <TextBlock Text="Reset position" Foreground="{DynamicResource FlyoutText}" FontSize="12" />
+                                </Button>
+                            </Grid>
+                            <Slider x:Name="TaskbarPositionSlider" Minimum="0" Maximum="{Binding TaskbarPositionMaximum}" TickFrequency="1"
+                                    IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10"
+                                    AutomationProperties.Name="Taskbar position"
+                                    Foreground="{DynamicResource FlyoutBlue}"
+                                    Value="{Binding TaskbarPositionPercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            <Grid Margin="0,4,0,0">
+                                <TextBlock Text="Left" Foreground="{DynamicResource FlyoutMuted}" FontSize="11" />
+                                <TextBlock Text="Right" Foreground="{DynamicResource FlyoutMuted}" FontSize="11"
+                                           HorizontalAlignment="Right" />
+                            </Grid>
+                            <TextBlock Text="Moves across the whole taskbar. Reset returns it beside the tray. Choose a free spot to avoid covering apps or tray icons."
+                                       Foreground="{DynamicResource FlyoutMuted}" FontSize="12" TextWrapping="Wrap" Margin="0,7,0,11" />
+                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
+                            <Grid Margin="0,12,0,8">
+                                <TextBlock Text="Taskbar text colour" FontSize="13" VerticalAlignment="Center" />
+                                <ComboBox x:Name="TaskbarTextColorPicker" Width="140" Height="30" HorizontalAlignment="Right"
+                                          AutomationProperties.Name="Taskbar text colour"
+                                          ItemsSource="{Binding TaskbarColorOptions}"
+                                          SelectedItem="{Binding TaskbarTextColorMode, Mode=TwoWay}" />
+                            </Grid>
+                            <StackPanel Visibility="{Binding UseCustomTaskbarTextColor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid Margin="0,0,0,6">
+                                    <TextBlock Text="Hex colour" FontSize="12" VerticalAlignment="Center" />
+                                    <TextBox x:Name="TaskbarTextHexInput" Width="140" Height="30" Padding="6,4"
+                                             HorizontalAlignment="Right" MaxLength="7" AutomationProperties.Name="Taskbar text hex colour"
+                                             Text="{Binding TaskbarTextColorInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                </Grid>
+                                <TextBlock Text="{Binding TaskbarTextColorError}" Foreground="{DynamicResource FlyoutMuted}"
+                                           FontSize="12" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <Grid Margin="0,6,0,8">
+                                <TextBlock Text="Taskbar bar colour" FontSize="13" VerticalAlignment="Center" />
+                                <ComboBox x:Name="TaskbarBarColorPicker" Width="140" Height="30" HorizontalAlignment="Right"
+                                          AutomationProperties.Name="Taskbar bar colour"
+                                          ItemsSource="{Binding TaskbarColorOptions}"
+                                          SelectedItem="{Binding TaskbarBarColorMode, Mode=TwoWay}" />
+                            </Grid>
+                            <StackPanel Visibility="{Binding UseCustomTaskbarBarColor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                <Grid Margin="0,0,0,6">
+                                    <TextBlock Text="Hex colour" FontSize="12" VerticalAlignment="Center" />
+                                    <TextBox x:Name="TaskbarBarHexInput" Width="140" Height="30" Padding="6,4"
+                                             HorizontalAlignment="Right" MaxLength="7" AutomationProperties.Name="Taskbar bar hex colour"
+                                             Text="{Binding TaskbarBarColorInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                </Grid>
+                                <TextBlock Text="{Binding TaskbarBarColorError}" Foreground="{DynamicResource FlyoutMuted}"
+                                           FontSize="12" TextWrapping="Wrap" />
+                            </StackPanel>
+                            <TextBlock Text="These colours apply to the taskbar only. Automatic bars change colour when usage is low."
+                                       Foreground="{DynamicResource FlyoutMuted}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,11" />
                             <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
                             <TextBlock x:Name="FlyoutPositionLabel" Text="Flyout position" FontSize="13"
                                        Foreground="{DynamicResource FlyoutText}" Margin="0,11,0,8" />
@@ -361,8 +443,9 @@
                                        Foreground="{DynamicResource FlyoutMuted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0" />
                         </StackPanel>
                     </Border>
-                    <Grid Grid.Row="3" Margin="7,12,7,0">
-                        <Button Style="{StaticResource FlyoutBackButton}" HorizontalAlignment="Left"
+                    </ScrollViewer>
+                    <Grid Grid.Row="2" Margin="7,12,7,0">
+                        <Button x:Name="BackToUsageButton" Style="{StaticResource FlyoutBackButton}" HorizontalAlignment="Left"
                                 Click="BackToGraphButton_Click">
                             <StackPanel Orientation="Horizontal">
                                 <TextBlock FontFamily="Segoe Fluent Icons" FontSize="14" Text="&#xE72B;" Margin="0,1,8,0" />

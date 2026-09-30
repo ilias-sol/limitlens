@@ -2,6 +2,32 @@
 
 All notable changes to Limit Lens are documented here.
 
+## Unreleased
+
+### Added
+
+- Separate 5-hour and weekly indicators for Plus in the taskbar and flyout;
+  compact weekly-only layouts for Pro and higher-tier plans.
+- Reset countdowns and data freshness in the taskbar tooltip.
+- Saved taskbar position slider with immediate movement and a reset button;
+  relative placement adapts to taskbar width, indicator width, and display scaling.
+- Extend positioning past the tray to the taskbar's far-right edge while preserving
+  existing saved positions and reset-to-tray behavior.
+- Separate taskbar text and bar colour settings, with automatic appearance,
+  white/black/gray presets, and validated custom hex colours. Keep settings
+  scrollable with the navigation footer visible.
+
+### Fixed
+
+- Select the Codex usage bucket explicitly and identify windows by their duration.
+- Display unavailable usage as “—” rather than 100% remaining.
+- Prefer weekly forecast history and keep window durations and bucket identities
+  separate, including when reset timestamps coincide. Discard ambiguous legacy
+  saved history on migration; local session metadata rebuilds the curve.
+- Synchronize taskbar content size with host resizing and DPI changes, resume
+  colour updates after reload, and handle theme changes on the UI thread.
+- Mute alerts until the earliest upcoming reset.
+
 ## 0.1.1 - 2026-08-15
 
 ### Fixed

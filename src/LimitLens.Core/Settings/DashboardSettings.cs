@@ -54,11 +54,14 @@ public sealed class UsageHistorySample
     public DateTimeOffset Timestamp { get; set; }
     public int RemainingPercent { get; set; }
     public DateTimeOffset ResetAt { get; set; }
+    public long? WindowDurationMinutes { get; set; }
+    public string? LimitId { get; set; }
 }
 
 public sealed class DashboardSettings
 {
-    public const int CurrentSchemaVersion = 9;
+    public const int CurrentSchemaVersion = 10;
+    public const int MaxTaskbarPosition = 200;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public DashboardWindowMode WindowMode { get; set; } = DashboardWindowMode.Compact;
@@ -69,6 +72,12 @@ public sealed class DashboardSettings
     public bool AutoCollapseWidget { get; set; }
     public bool ShowCreditsInWidget { get; set; } = true;
     public FlyoutPosition FlyoutPosition { get; set; } = FlyoutPosition.Right;
+    // 100 is beside the tray; 200 is the far-right edge. Preserve the original saved range.
+    public int TaskbarPositionPercent { get; set; } = 100;
+    public TaskbarColorMode TaskbarTextColorMode { get; set; }
+    public TaskbarColorMode TaskbarBarColorMode { get; set; }
+    public string TaskbarCustomTextColor { get; set; } = TaskbarColors.DefaultCustomColor;
+    public string TaskbarCustomBarColor { get; set; } = TaskbarColors.DefaultCustomColor;
     public double WidgetOpacity { get; set; } = 1;
     public List<UsageHistorySample> UsageHistory { get; set; } = [];
     public bool AlertsEnabled { get; set; } = true;

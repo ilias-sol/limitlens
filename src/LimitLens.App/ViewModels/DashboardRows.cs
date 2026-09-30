@@ -1,5 +1,12 @@
 namespace LimitLens.App.ViewModels;
 
+public sealed record UsageIndicatorViewModel(string Label, int? RemainingPercent, string ResetText)
+{
+    public string PercentageText => RemainingPercent is { } remaining ? $"{remaining}%" : "—";
+    public double ProgressValue => RemainingPercent ?? 0;
+    public bool IsAvailable => RemainingPercent is not null;
+}
+
 public sealed record LimitRowViewModel(
     string Id,
     string Name,

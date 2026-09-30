@@ -40,8 +40,11 @@ The JSON settings file can retain:
 
 - user-selected Codex home and executable paths;
 - window and monitor placement;
-- appearance, startup, card, and alert preferences;
-- rate-limit usage history and alert deduplication state; and
+- appearance (including taskbar position and text/bar colour choices), startup,
+  card, and alert preferences;
+- rate-limit usage history (timestamp, remaining percentage, reset timestamp,
+  quota-window duration, and metered bucket identifier) and alert deduplication
+  state; and
 - the random salt used for pseudonymous project identifiers.
 
 Installed mode stores the database and settings under

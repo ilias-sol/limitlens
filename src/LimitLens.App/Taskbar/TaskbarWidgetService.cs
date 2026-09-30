@@ -9,11 +9,12 @@ namespace LimitLens.App.Taskbar;
 
 /// <summary>
 /// Hosts a small WPF surface in Explorer's primary taskbar. The window is created as a layered popup,
-/// reparented into Shell_TrayWnd, and kept immediately to the left of TrayNotifyWnd.
+/// reparented into Shell_TrayWnd, and positioned across its full width.
 /// </summary>
 public sealed class TaskbarWidgetService : IDisposable
 {
-    private const int LogicalWidth = 134;
+    private const int SingleLogicalWidth = 134;
+    private const int DualLogicalWidth = 190;
     private const int LogicalClearance = 5;
     private const int LogicalVerticalInset = 2;
     private const int WsPopup = unchecked((int)0x80000000);
@@ -22,7 +23,6 @@ public sealed class TaskbarWidgetService : IDisposable
     private const int WsExToolWindow = 0x00000080;
     private const int WsExNoActivate = 0x08000000;
     private const uint SwpNoActivate = 0x0010;
-    private const uint SwpNoZOrder = 0x0004;
     private const uint SwpShowWindow = 0x0040;
     private const int SwShowNoActivate = 8;
     private const uint GaParent = 1;
@@ -36,12 +36,14 @@ public sealed class TaskbarWidgetService : IDisposable
     private IntPtr taskbar;
     private IntPtr tray;
     private bool disposed;
+    private int LogicalWidth => viewModel.ShowDualLimitIndicators ? DualLogicalWidth : SingleLogicalWidth;
 
     public TaskbarWidgetService(DashboardViewModel viewModel)
     {
         this.viewModel = viewModel;
         healthTimer = new DispatcherTimer(TimeSpan.FromSeconds(2), DispatcherPriority.Background, (_, _) => EnsureAttached(), Dispatcher.CurrentDispatcher);
         SystemEvents.UserPreferenceChanged += OnUserPreferenceChanged;
+        viewModel.PropertyChanged += OnViewModelPropertyChanged;
         EnsureAttached();
         healthTimer.Start();
     }
@@ -93,6 +95,7 @@ public sealed class TaskbarWidgetService : IDisposable
         disposed = true;
         healthTimer.Stop();
         SystemEvents.UserPreferenceChanged -= OnUserPreferenceChanged;
+        viewModel.PropertyChanged -= OnViewModelPropertyChanged;
         DestroyHost();
     }
 
@@ -146,9 +149,18 @@ public sealed class TaskbarWidgetService : IDisposable
         var scale = dpi / 96d;
         var width = (int)Math.Ceiling(LogicalWidth * scale);
         var height = Math.Max(24, taskbarBounds.Bottom - taskbarBounds.Top - (int)Math.Ceiling(LogicalVerticalInset * 2 * scale));
-        var x = TaskbarPlacement.LeftOfTray(taskbarBounds.Left, trayBounds.Left, width, (int)Math.Ceiling(LogicalClearance * scale));
+        // Keep the WPF surface in sync when limits, taskbar size, or monitor DPI change.
+        // Resizing only the HWND leaves the content at its original size and clips the bars.
+        if (view is not null)
+        {
+            view.Width = LogicalWidth;
+            view.Height = height / scale;
+        }
+        var x = TaskbarPlacement.WidgetLeft(taskbarBounds.Left, taskbarBounds.Right, trayBounds.Left,
+            width, (int)Math.Ceiling(LogicalClearance * scale), viewModel.TaskbarPositionPercent);
         var y = TaskbarPlacement.CenterVertically(taskbarBounds.Top, taskbarBounds.Bottom, height);
-        _ = SetWindowPos(source.Handle, IntPtr.Zero, x, y, width, height, SwpNoActivate | SwpNoZOrder | SwpShowWindow);
+        // Keep the widget above sibling taskbar surfaces when positioned over the tray area.
+        _ = SetWindowPos(source.Handle, IntPtr.Zero, x, y, width, height, SwpNoActivate | SwpShowWindow);
         _ = ShowWindow(source.Handle, SwShowNoActivate);
     }
 
@@ -182,8 +194,19 @@ public sealed class TaskbarWidgetService : IDisposable
 
     private void OnUserPreferenceChanged(object sender, UserPreferenceChangedEventArgs args)
     {
-        if (view is not null) view.ApplyTaskbarTheme(WindowsUsesLightTaskbar());
-        EnsureAttached();
+        // SystemEvents can arrive on its own thread; WPF surfaces belong to the app dispatcher.
+        _ = healthTimer.Dispatcher.InvokeAsync(() =>
+        {
+            if (disposed) return;
+            view?.ApplyTaskbarTheme(WindowsUsesLightTaskbar());
+            EnsureAttached();
+        });
+    }
+
+    private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
+    {
+        if (args.PropertyName is nameof(DashboardViewModel.ShowDualLimitIndicators)
+            or nameof(DashboardViewModel.TaskbarPositionPercent)) EnsureAttached();
     }
 
     private static bool WindowsUsesLightTaskbar()

@@ -16,6 +16,22 @@ internal static class TaskbarPlacement
     public static int LeftOfTray(int taskbarLeft, int trayLeft, int widgetWidth, int clearance)
         => Math.Max(0, trayLeft - taskbarLeft - widgetWidth - clearance);
 
+    public static int WidgetLeft(int taskbarLeft, int taskbarRight, int trayLeft,
+        int widgetWidth, int clearance, int positionPercent)
+    {
+        // Use physical taskbar-client coordinates, including on monitors with negative origins.
+        var maxLeft = Math.Max(0L, (long)taskbarRight - taskbarLeft - Math.Max(0, widgetWidth));
+        var trayLeftPosition = Math.Clamp((long)trayLeft - taskbarLeft
+            - Math.Max(0, clearance) - Math.Max(0, widgetWidth), 0L, maxLeft);
+        var position = Math.Clamp(positionPercent, 0, DashboardSettings.MaxTaskbarPosition);
+        // The original 0..100 range keeps its placement. The extension continues past the tray
+        // to the taskbar's right edge, so saved preferences and reset-to-tray still work.
+        var left = position <= 100
+            ? trayLeftPosition * (position / 100d)
+            : trayLeftPosition + (maxLeft - trayLeftPosition) * ((position - 100) / 100d);
+        return (int)Math.Min(int.MaxValue, Math.Round(left));
+    }
+
     public static int CenterVertically(int taskbarTop, int taskbarBottom, int widgetHeight)
         => Math.Max(0, ((taskbarBottom - taskbarTop) - widgetHeight) / 2);
 

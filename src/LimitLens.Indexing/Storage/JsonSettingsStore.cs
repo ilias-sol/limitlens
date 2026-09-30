@@ -118,6 +118,13 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
 
     private static DashboardSettings Normalize(DashboardSettings settings)
     {
+        settings.TaskbarPositionPercent = Math.Clamp(settings.TaskbarPositionPercent, 0, DashboardSettings.MaxTaskbarPosition);
+        if (!Enum.IsDefined(settings.TaskbarTextColorMode)) settings.TaskbarTextColorMode = TaskbarColorMode.Automatic;
+        if (!Enum.IsDefined(settings.TaskbarBarColorMode)) settings.TaskbarBarColorMode = TaskbarColorMode.Automatic;
+        TaskbarColors.TryNormalizeHex(settings.TaskbarCustomTextColor, out var textColor);
+        TaskbarColors.TryNormalizeHex(settings.TaskbarCustomBarColor, out var barColor);
+        settings.TaskbarCustomTextColor = textColor;
+        settings.TaskbarCustomBarColor = barColor;
         settings.CompactPlacement ??= new WindowPlacementSettings();
         settings.ExpandedPlacement ??= new WindowPlacementSettings();
         settings.AlertThresholds ??= [];
@@ -147,6 +154,7 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
         settings.UsageHistory = (settings.UsageHistory ?? [])
             .Where(sample => sample.Timestamp != default &&
                              sample.ResetAt > sample.Timestamp &&
+                             (previousSchema >= 10 || sample.WindowDurationMinutes is > 0) &&
                              sample.RemainingPercent is >= 0 and <= 100)
             .OrderBy(sample => sample.Timestamp)
             .TakeLast(512)

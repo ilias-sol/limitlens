@@ -8,6 +8,7 @@ using LimitLens.App.Services;
 using LimitLens.Core.Abstractions;
 using LimitLens.Core.Models;
 using LimitLens.Core.Settings;
+using LimitLens.Core.Services;
 using Brush = System.Windows.Media.Brush;
 
 namespace LimitLens.App.ViewModels;
@@ -42,6 +43,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     private bool isRefreshing;
     private string statusMessage = "Starting Limit Lens…";
     private bool disposed;
+    private string taskbarTextColorInput;
+    private string taskbarBarColorInput;
 
     public DashboardViewModel(
         ICodexAppServerClient accountClient,
@@ -56,6 +59,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         this.settingsStore = settingsStore;
         this.startupService = startupService;
         this.settings = settings;
+        taskbarTextColorInput = settings.TaskbarCustomTextColor;
+        taskbarBarColorInput = settings.TaskbarCustomBarColor;
         DataLocation = dataLocation;
         account = accountClient.Current;
         local = sessionIndexer.Current;
@@ -74,6 +79,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         RefreshCommand = new AsyncRelayCommand(_ => RefreshAccountAsync(), onException: ReportCommandFailure);
         RebuildCommand = new AsyncRelayCommand(_ => RebuildLocalDataAsync(), onException: ReportCommandFailure);
         DeleteCommand = new AsyncRelayCommand(_ => DeleteLocalDataAsync(), onException: ReportCommandFailure);
+        ResetTaskbarPositionCommand = new RelayCommand(_ => TaskbarPositionPercent = 100);
 
         foreach (var id in settings.CardOrder)
         {
@@ -105,6 +111,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     public ICommand RefreshCommand { get; }
     public ICommand RebuildCommand { get; }
     public ICommand DeleteCommand { get; }
+    public ICommand ResetTaskbarPositionCommand { get; }
 
     public string SelectedPage
     {
@@ -187,6 +194,86 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(CreditsVisible));
             WidgetBehaviorChanged?.Invoke();
+            QueueSettingsSave();
+        }
+    }
+
+    public int TaskbarPositionMaximum => DashboardSettings.MaxTaskbarPosition;
+
+    public IReadOnlyList<TaskbarColorMode> TaskbarColorOptions { get; } = Enum.GetValues<TaskbarColorMode>();
+
+    public TaskbarColorMode TaskbarTextColorMode
+    {
+        get => settings.TaskbarTextColorMode;
+        set
+        {
+            if (!Enum.IsDefined(value) || settings.TaskbarTextColorMode == value) return;
+            settings.TaskbarTextColorMode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(UseCustomTaskbarTextColor));
+            QueueSettingsSave();
+        }
+    }
+
+    public TaskbarColorMode TaskbarBarColorMode
+    {
+        get => settings.TaskbarBarColorMode;
+        set
+        {
+            if (!Enum.IsDefined(value) || settings.TaskbarBarColorMode == value) return;
+            settings.TaskbarBarColorMode = value;
+            OnPropertyChanged();
+            OnPropertyChanged(nameof(UseCustomTaskbarBarColor));
+            QueueSettingsSave();
+        }
+    }
+
+    public bool UseCustomTaskbarTextColor => TaskbarTextColorMode == TaskbarColorMode.Custom;
+    public bool UseCustomTaskbarBarColor => TaskbarBarColorMode == TaskbarColorMode.Custom;
+    public string TaskbarCustomTextColor => settings.TaskbarCustomTextColor;
+    public string TaskbarCustomBarColor => settings.TaskbarCustomBarColor;
+    public string TaskbarTextColorError => TaskbarColors.TryNormalizeHex(taskbarTextColorInput, out _)
+        ? string.Empty : "Enter six hex digits, for example #FFFFFF.";
+    public string TaskbarBarColorError => TaskbarColors.TryNormalizeHex(taskbarBarColorInput, out _)
+        ? string.Empty : "Enter six hex digits, for example #FFFFFF.";
+
+    public string TaskbarTextColorInput
+    {
+        get => taskbarTextColorInput;
+        set
+        {
+            if (!SetProperty(ref taskbarTextColorInput, value)) return;
+            OnPropertyChanged(nameof(TaskbarTextColorError));
+            if (!TaskbarColors.TryNormalizeHex(value, out var color)) return;
+            settings.TaskbarCustomTextColor = color;
+            OnPropertyChanged(nameof(TaskbarCustomTextColor));
+            QueueSettingsSave();
+        }
+    }
+
+    public string TaskbarBarColorInput
+    {
+        get => taskbarBarColorInput;
+        set
+        {
+            if (!SetProperty(ref taskbarBarColorInput, value)) return;
+            OnPropertyChanged(nameof(TaskbarBarColorError));
+            if (!TaskbarColors.TryNormalizeHex(value, out var color)) return;
+            settings.TaskbarCustomBarColor = color;
+            OnPropertyChanged(nameof(TaskbarCustomBarColor));
+            QueueSettingsSave();
+        }
+    }
+
+    public int TaskbarPositionPercent
+    {
+        get => settings.TaskbarPositionPercent;
+        set
+        {
+            var normalized = Math.Clamp(value, 0, DashboardSettings.MaxTaskbarPosition);
+            if (settings.TaskbarPositionPercent == normalized) return;
+            settings.TaskbarPositionPercent = normalized;
+            OnPropertyChanged();
             QueueSettingsSave();
         }
     }
@@ -335,6 +422,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(UseLightTheme));
             OnPropertyChanged(nameof(UsageRemainingBrush));
+            OnPropertyChanged(nameof(DashboardMainLimitBrush));
+            OnPropertyChanged(nameof(FiveHourLimitBrush));
             AppearanceChanged?.Invoke();
             QueueSettingsSave();
         }
@@ -427,6 +516,15 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     {
         get
         {
+            if (accountHealth.State is SourceConnectionState.SignedOut or SourceConnectionState.Missing or SourceConnectionState.LocalOnly)
+            {
+                return accountHealth.State switch
+                {
+                    SourceConnectionState.SignedOut => "Signed out",
+                    SourceConnectionState.Missing => "Codex missing",
+                    _ => "Account unavailable",
+                };
+            }
             var updated = account.UpdatedAt > DateTimeOffset.MinValue
                 ? account.UpdatedAt
                 : accountHealth.LastSuccessfulUpdate;
@@ -461,9 +559,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     {
         get
         {
-            var plan = account.RateLimits
-                .Select(bucket => bucket.PlanType)
-                .FirstOrDefault(value => !string.IsNullOrWhiteSpace(value)) ?? account.PlanType;
+            var plan = AccountLimitSelector.Select(account).Bucket?.PlanType ?? account.PlanType;
             return plan?.Trim().ToLowerInvariant() switch
             {
                 "plus" => "ChatGPT Plus",
@@ -501,8 +597,24 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     public string OutputTokens { get; private set; } = "0";
     public string ReasoningTokens { get; private set; } = "0";
     public double[] TrendValues { get; private set; } = [];
-    public double ForecastRemainingPercent { get; private set; } = 100;
-    public Brush UsageRemainingBrush => UsageRemainingBrushConverter.Select(ForecastRemainingPercent, SelectedTheme);
+    public double ForecastRemainingPercent { get; private set; }
+    public bool HasUsageData { get; private set; }
+    public bool HasForecastWindow => ForecastWindowStart is { } start && ForecastResetAt > start;
+    public string ForecastRemainingText => HasUsageData ? $"{ForecastRemainingPercent:0}%" : "—";
+    public string ForecastWindowLabel { get; private set; } = "Usage";
+    public string ForecastChartTitle => $"{ForecastWindowLabel} usage trajectory";
+    public string UsageRemainingTitle => ShowDualLimitIndicators ? "Weekly usage remaining" :
+        ForecastWindowLabel == "Usage" ? "Usage remaining" : $"{ForecastWindowLabel} usage remaining";
+    public UsageIndicatorViewModel TaskbarPrimaryLimit { get; private set; } = new("Usage left", null, "Reset unavailable");
+    public UsageIndicatorViewModel TaskbarSecondaryLimit { get; private set; } = new("Weekly", null, "Reset unavailable");
+    public bool ShowDualLimitIndicators { get; private set; }
+    public UsageIndicatorViewModel DashboardMainLimit => ShowDualLimitIndicators ? TaskbarSecondaryLimit : TaskbarPrimaryLimit;
+    public Brush DashboardMainLimitBrush => UsageRemainingBrushConverter.Select(DashboardMainLimit.RemainingPercent ?? 100, SelectedTheme);
+    public Brush FiveHourLimitBrush => UsageRemainingBrushConverter.Select(TaskbarPrimaryLimit.RemainingPercent ?? 100, SelectedTheme);
+    public string TaskbarToolTip => ShowDualLimitIndicators
+        ? $"5-hour: {TaskbarPrimaryLimit.PercentageText} remaining · {TaskbarPrimaryLimit.ResetText}\nWeekly: {TaskbarSecondaryLimit.PercentageText} remaining · {TaskbarSecondaryLimit.ResetText}\n{FreshnessText}"
+        : $"{TaskbarPrimaryLimit.Label}: {TaskbarPrimaryLimit.PercentageText} remaining · {TaskbarPrimaryLimit.ResetText}\n{FreshnessText}";
+    public Brush UsageRemainingBrush => UsageRemainingBrushConverter.Select(HasUsageData ? ForecastRemainingPercent : 100, SelectedTheme);
     public double ForecastElapsedPercent { get; private set; }
     public double ForecastProjectedRemaining { get; private set; } = 100;
     public DateTimeOffset? ForecastWindowStart { get; private set; }
@@ -513,10 +625,10 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     public string ForecastCurrentText { get; private set; } = "Usage forecast unavailable";
     public string ForecastSummary { get; private set; } = "Waiting for a complete rate-limit window.";
     public IReadOnlyList<UsageHistorySample> ForecastActualPoints => settings.UsageHistory;
-    public string WidgetRemainingText => $"{ForecastRemainingPercent:0}% remaining";
+    public string WidgetRemainingText => HasUsageData ? $"{ForecastRemainingPercent:0}% remaining" : "Usage unavailable";
     public string WidgetResetText => ForecastResetAt is { } reset ? FormatReset(reset) : "Reset time unavailable";
     public string WidgetResetShortText => ForecastResetAt is { } reset ? FormatRelativeReset(reset) : "Reset unavailable";
-    public string ForecastStatusText => ForecastRemainingPercent <= 10
+    public string ForecastStatusText => !HasUsageData ? "Unavailable" : ForecastRemainingPercent <= 10
         ? "Critical"
         : ForecastEmptyAt is { } empty && ForecastResetAt is { } reset && empty < reset
             ? "At risk"
@@ -542,7 +654,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     {
         { } empty when empty <= DateTimeOffset.Now => "At limit",
         { } empty => FormatDuration(empty - DateTimeOffset.Now),
-        _ when ForecastResetAt is not null => "Through reset",
+        _ when ForecastResetAt is not null && ForecastHasPrediction => "Through reset",
+        _ when ForecastResetAt is not null => "Collecting data",
         _ => "Unavailable",
     };
     public string CreditsText { get; private set; } = string.Empty;
@@ -585,7 +698,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         var reset = account.RateLimits
             .SelectMany(bucket => new[] { bucket.Primary?.ResetsAt, bucket.Secondary?.ResetsAt })
             .Where(value => value > DateTimeOffset.Now)
-            .Max();
+            .Min();
         settings.AlertsMutedUntil = reset ?? DateTimeOffset.Now.AddHours(1);
         OnPropertyChanged(nameof(AlertsMuted));
         OnPropertyChanged(nameof(AlertsMutedText));
@@ -957,8 +1070,18 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 
     private void RefreshForecast()
     {
-        var bucket = account.RateLimits.FirstOrDefault(candidate => candidate.Primary is not null);
-        var window = bucket?.Primary;
+        var selected = AccountLimitSelector.Select(account);
+        var window = selected.Forecast;
+        HasUsageData = window is not null;
+        ForecastWindowLabel = selected.ForecastLabel;
+        if (ShowDualLimitIndicators != selected.ShowBoth)
+        {
+            ShowDualLimitIndicators = selected.ShowBoth;
+            OnPropertyChanged(nameof(ShowDualLimitIndicators));
+        }
+        var primaryWindow = selected.ShowBoth ? selected.FiveHour : window;
+        TaskbarPrimaryLimit = Indicator(selected.ShowBoth ? "5h" : selected.ForecastLabel == "Weekly" ? "Weekly" : "Usage left", primaryWindow);
+        TaskbarSecondaryLimit = Indicator("Weekly", selected.Weekly);
         ForecastResetAt = window?.ResetsAt;
         ForecastEmptyAt = null;
         ForecastHasPrediction = false;
@@ -967,11 +1090,13 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         if (window?.ResetsAt is not { } reset || window.WindowDurationMinutes is not > 0)
         {
             ForecastWindowStart = null;
-            ForecastRemainingPercent = window?.RemainingPercent ?? 100;
+            ForecastRemainingPercent = window?.RemainingPercent ?? 0;
             ForecastElapsedPercent = 0;
             ForecastProjectedRemaining = ForecastRemainingPercent;
             ForecastCurrentText = window is null ? "Usage forecast unavailable" : $"{window.RemainingPercent}% remaining";
-            ForecastSummary = "A reset time and window duration are required for a projection.";
+            ForecastSummary = window is null
+                ? "Waiting for account usage. Refresh to try again."
+                : "A reset time and window duration are required for a projection.";
             NotifyForecastProperties();
             return;
         }
@@ -987,7 +1112,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         ForecastElapsedPercent = elapsedFraction * 100;
         ForecastProjectedRemaining = window.RemainingPercent;
         ForecastCurrentText = $"{window.RemainingPercent}% remaining · resets {FormatForecastDate(reset)}";
-        RecordUsageSample(window, reset, now);
+        RecordUsageSample(window, selected.Bucket?.Id, reset, now);
 
         if (TryCalculateRecentForecast(start, reset, now, out var slopePerSecond))
         {
@@ -1020,6 +1145,18 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 
     private void NotifyForecastProperties()
     {
+        OnPropertyChanged(nameof(HasUsageData));
+        OnPropertyChanged(nameof(HasForecastWindow));
+        OnPropertyChanged(nameof(ForecastRemainingText));
+        OnPropertyChanged(nameof(ForecastWindowLabel));
+        OnPropertyChanged(nameof(ForecastChartTitle));
+        OnPropertyChanged(nameof(UsageRemainingTitle));
+        OnPropertyChanged(nameof(TaskbarPrimaryLimit));
+        OnPropertyChanged(nameof(TaskbarSecondaryLimit));
+        OnPropertyChanged(nameof(DashboardMainLimit));
+        OnPropertyChanged(nameof(DashboardMainLimitBrush));
+        OnPropertyChanged(nameof(FiveHourLimitBrush));
+        OnPropertyChanged(nameof(TaskbarToolTip));
         OnPropertyChanged(nameof(ForecastRemainingPercent));
         OnPropertyChanged(nameof(UsageRemainingBrush));
         OnPropertyChanged(nameof(ForecastElapsedPercent));
@@ -1042,7 +1179,10 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ForecastRunwayMetric));
     }
 
-    private void RecordUsageSample(RateLimitWindow window, DateTimeOffset reset, DateTimeOffset now)
+    private static UsageIndicatorViewModel Indicator(string label, RateLimitWindow? window) =>
+        new(label, window?.RemainingPercent, window?.ResetsAt is { } reset ? FormatReset(reset) : "Reset unavailable");
+
+    private void RecordUsageSample(RateLimitWindow window, string? limitId, DateTimeOffset reset, DateTimeOffset now)
     {
         var timestamp = account.UpdatedAt > DateTimeOffset.MinValue ? account.UpdatedAt : now;
         timestamp = timestamp > now.AddMinutes(1) ? now : timestamp;
@@ -1052,11 +1192,15 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             Timestamp = timestamp,
             RemainingPercent = window.RemainingPercent,
             ResetAt = reset,
+            WindowDurationMinutes = window.WindowDurationMinutes,
+            LimitId = limitId,
         };
         var candidates = settings.UsageHistory
             .Concat(sessionIndexer.RateLimitHistory)
             .Append(current)
             .Where(sample => IsSameResetWindow(sample.ResetAt, reset) &&
+                             (sample.WindowDurationMinutes is null || sample.WindowDurationMinutes == window.WindowDurationMinutes) &&
+                             (sample.LimitId is null || string.Equals(sample.LimitId, limitId, StringComparison.OrdinalIgnoreCase)) &&
                              sample.Timestamp >= start - ResetTimestampTolerance &&
                              sample.Timestamp <= timestamp &&
                              sample.RemainingPercent >= window.RemainingPercent &&
@@ -1066,6 +1210,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
                 Timestamp = sample.Timestamp < start ? start : sample.Timestamp,
                 RemainingPercent = sample.RemainingPercent,
                 ResetAt = reset,
+                WindowDurationMinutes = window.WindowDurationMinutes,
+                LimitId = limitId,
             })
             .GroupBy(sample => sample.Timestamp)
             .Select(group => group.OrderBy(sample => sample.RemainingPercent).First())
@@ -1112,7 +1258,9 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         first.Count == second.Count && first.Zip(second).All(pair =>
             pair.First.Timestamp == pair.Second.Timestamp &&
             pair.First.RemainingPercent == pair.Second.RemainingPercent &&
-            pair.First.ResetAt == pair.Second.ResetAt);
+            pair.First.ResetAt == pair.Second.ResetAt &&
+            pair.First.WindowDurationMinutes == pair.Second.WindowDurationMinutes &&
+            pair.First.LimitId == pair.Second.LimitId);
 
     private bool TryCalculateRecentForecast(
         DateTimeOffset start,

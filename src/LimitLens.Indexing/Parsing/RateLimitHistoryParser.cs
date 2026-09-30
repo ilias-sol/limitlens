@@ -36,9 +36,12 @@ internal static class RateLimitHistoryParser
             try
             {
                 using var document = JsonDocument.Parse(line.Text);
-                if (TryReadSample(document.RootElement, out var sample))
+                foreach (var windowName in new[] { "primary", "secondary" })
                 {
-                    samples.Add(sample);
+                    if (TryReadSample(document.RootElement, windowName, out var sample))
+                    {
+                        samples.Add(sample);
+                    }
                 }
             }
             catch (JsonException)
@@ -50,7 +53,7 @@ internal static class RateLimitHistoryParser
         return new RateLimitHistoryParseResult(samples, completedOffset);
     }
 
-    private static bool TryReadSample(JsonElement root, out UsageHistorySample sample)
+    private static bool TryReadSample(JsonElement root, string windowName, out UsageHistorySample sample)
     {
         sample = new UsageHistorySample();
         if (!HasStringValue(root, "type", "event_msg") ||
@@ -59,7 +62,7 @@ internal static class RateLimitHistoryParser
             !HasStringValue(payload, "type", "token_count") ||
             !payload.TryGetProperty("rate_limits", out var limits) ||
             limits.ValueKind != JsonValueKind.Object ||
-            !limits.TryGetProperty("primary", out var primary) ||
+            !limits.TryGetProperty(windowName, out var primary) ||
             primary.ValueKind != JsonValueKind.Object ||
             !TryReadTimestamp(root, "timestamp", out var timestamp) ||
             !TryReadDouble(primary, "used_percent", out var usedPercent) ||
@@ -88,6 +91,12 @@ internal static class RateLimitHistoryParser
                 0,
                 100),
             ResetAt = resetAt,
+            WindowDurationMinutes = TryReadDouble(primary, "window_minutes", out var duration) && duration is > 0 and <= 525600
+                ? (long)duration
+                : null,
+            LimitId = limits.TryGetProperty("limit_id", out var limitId) && limitId.ValueKind == JsonValueKind.String
+                ? limitId.GetString()
+                : "codex",
         };
         return true;
     }

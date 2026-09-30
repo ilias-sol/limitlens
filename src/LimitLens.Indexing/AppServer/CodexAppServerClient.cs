@@ -522,13 +522,15 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexApp
     private static RateLimitWindow? ParseWindow(JsonElement element, string propertyName)
     {
         if (!element.TryGetProperty(propertyName, out var window) ||
-            window.ValueKind != JsonValueKind.Object)
+            window.ValueKind != JsonValueKind.Object ||
+            ReadInt64(window, "usedPercent") is not { } usedPercent ||
+            usedPercent is < 0 or > int.MaxValue)
         {
             return null;
         }
 
         return new RateLimitWindow(
-            (int)(ReadInt64(window, "usedPercent") ?? 0),
+            (int)usedPercent,
             ReadInt64(window, "windowDurationMins") ?? ReadInt64(window, "window_minutes"),
             ReadUnixTimestamp(window, "resetsAt") ?? ReadUnixTimestamp(window, "resets_at"));
     }

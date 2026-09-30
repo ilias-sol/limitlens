@@ -544,6 +544,16 @@ public sealed class SessionLogIndexer(
             return [];
         }
 
+        return candidates
+            .GroupBy(sample => (sample.LimitId, sample.WindowDurationMinutes))
+            .SelectMany(group => CompactWindowHistory(group.ToArray()))
+            .OrderBy(sample => sample.Timestamp)
+            .TakeLast(MaxRateLimitHistorySamples)
+            .ToArray();
+    }
+
+    private static IEnumerable<UsageHistorySample> CompactWindowHistory(UsageHistorySample[] candidates)
+    {
         var resetGroups = candidates
             .GroupBy(sample => sample.ResetAt)
             .Select(group => new ResetGroup(group.Key, group.Count()))
@@ -579,6 +589,8 @@ public sealed class SessionLogIndexer(
                          Timestamp = sample.Timestamp,
                          RemainingPercent = sample.RemainingPercent,
                          ResetAt = canonicalResets[sample.ResetAt],
+                         LimitId = sample.LimitId,
+                         WindowDurationMinutes = sample.WindowDurationMinutes,
                      })
                      .GroupBy(sample => sample.ResetAt)
                      .OrderBy(group => group.Key))
@@ -610,10 +622,7 @@ public sealed class SessionLogIndexer(
             compacted.AddRange(windowSamples);
         }
 
-        return compacted
-            .OrderBy(sample => sample.Timestamp)
-            .TakeLast(MaxRateLimitHistorySamples)
-            .ToArray();
+        return compacted;
     }
 
     private sealed record RateLimitFileState(

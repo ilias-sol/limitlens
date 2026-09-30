@@ -130,8 +130,9 @@ public sealed class UiSmokeTests
                 application.InitializeComponent();
                 step = "view-model creation";
                 var settings = new DashboardSettings { Theme = DashboardTheme.Light };
+                var accountClient = new FakeAccountClient(AccountUsageSnapshot.Empty with { PlanType = "plus" });
                 using var model = new DashboardViewModel(
-                    new FakeAccountClient(AccountUsageSnapshot.Empty with { PlanType = "plus" }),
+                    accountClient,
                     new FakeIndexer(),
                     new FakeSettingsStore(settings),
                     new FakeStartupService(),
@@ -152,13 +153,14 @@ public sealed class UiSmokeTests
                 window.Measure(new Size(420, 484));
                 window.Arrange(new Rect(0, 0, 420, 484));
                 window.UpdateLayout();
-                UpdateBindings(window);
+                _ = RenderElement(Assert.IsAssignableFrom<FrameworkElement>(window.Content), 420, 584);
+                UpdateBindings(Assert.IsAssignableFrom<FrameworkElement>(window.Content));
                 var usageRemainingLabel = Assert.IsType<System.Windows.Controls.TextBlock>(window.FindName("UsageRemainingLabel"));
                 var usageRemainingProgress = Assert.IsType<System.Windows.Controls.ProgressBar>(window.FindName("UsageRemainingProgress"));
                 var usageBrushBinding = BindingOperations.GetBindingExpression(usageRemainingProgress, System.Windows.Controls.Control.ForegroundProperty);
                 Assert.NotNull(usageBrushBinding);
                 Assert.Equal(Color.FromRgb(63, 71, 77), Assert.IsType<SolidColorBrush>(model.UsageRemainingBrush).Color);
-                Assert.Equal("Usage remaining", usageRemainingLabel.Text);
+                Assert.Equal("Weekly usage remaining", usageRemainingLabel.Text);
                 Assert.NotNull(window.FindName("RefreshButton"));
                 Assert.NotNull(window.FindName("SettingsButton"));
                 var footerPlanText = Assert.IsType<System.Windows.Controls.TextBlock>(window.FindName("FooterPlanText"));
@@ -184,7 +186,26 @@ public sealed class UiSmokeTests
                 CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "flyout-dark", 420, 484);
                 model.ShowWidgetSettings = true;
                 UpdateBindings(window);
-                Assert.Equal(420, window.Height);
+                Assert.Equal(584, window.Height);
+                window.Measure(new Size(420, 584));
+                window.Arrange(new Rect(0, 0, 420, 584));
+                window.UpdateLayout();
+                var taskbarPosition = Assert.IsType<System.Windows.Controls.Slider>(window.FindName("TaskbarPositionSlider"));
+                Assert.Equal(100, taskbarPosition.Value);
+                Assert.Equal(200, taskbarPosition.Maximum);
+                taskbarPosition.SetCurrentValue(System.Windows.Controls.Primitives.RangeBase.ValueProperty, taskbarPosition.Maximum);
+                Assert.Equal(200, model.TaskbarPositionPercent);
+                Assert.Equal(200, settings.TaskbarPositionPercent);
+                taskbarPosition.SetCurrentValue(System.Windows.Controls.Primitives.RangeBase.ValueProperty, 37d);
+                Assert.Equal(37, model.TaskbarPositionPercent);
+                Assert.Equal(37, settings.TaskbarPositionPercent);
+                var resetPosition = Assert.IsType<System.Windows.Controls.Button>(window.FindName("ResetTaskbarPositionButton"));
+                Assert.True(resetPosition.Command.CanExecute(null));
+                resetPosition.Command.Execute(null);
+                UpdateBindings(window);
+                Assert.Equal(100, taskbarPosition.Value);
+                Assert.Equal(100, settings.TaskbarPositionPercent);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "settings-dark", 420, 584);
                 Assert.NotNull(window.FindName("AppearanceLabel"));
                 var positionLeft = Assert.IsType<System.Windows.Controls.RadioButton>(window.FindName("FlyoutPositionLeft"));
                 var positionCenter = Assert.IsType<System.Windows.Controls.RadioButton>(window.FindName("FlyoutPositionCenter"));
@@ -211,19 +232,24 @@ public sealed class UiSmokeTests
                 Assert.Equal(expectedLightText, Assert.IsType<SolidColorBrush>(positionLeftLabel.Foreground).Color);
                 Assert.Equal(Colors.White, Assert.IsType<SolidColorBrush>(positionCenterLabel.Foreground).Color);
                 Assert.Equal(expectedLightText, Assert.IsType<SolidColorBrush>(positionRightLabel.Foreground).Color);
-                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "settings", 420, 420);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "settings", 420, 584);
+                var backToUsage = Assert.IsType<System.Windows.Controls.Button>(window.FindName("BackToUsageButton"));
+                var backBottom = backToUsage.TranslatePoint(new Point(0, backToUsage.ActualHeight), window).Y;
+                Assert.True(backBottom <= window.Height, "The settings footer must remain visible.");
+                var settingsScroller = Assert.IsType<System.Windows.Controls.ScrollViewer>(window.FindName("SettingsScrollViewer"));
+                Assert.True(settingsScroller.ScrollableHeight > 0, "Additional settings must be scrollable.");
                 model.ShowWidgetSettings = false;
-                Assert.Equal(484, window.Height);
+                Assert.Equal(584, window.Height);
                 step = "taskbar indicator creation";
                 var taskbarIndicator = new TaskbarWidgetView { DataContext = model };
                 taskbarIndicator.ApplyTaskbarTheme(useDarkText: true);
-                taskbarIndicator.Measure(new Size(134, 44));
-                taskbarIndicator.Arrange(new Rect(0, 0, 134, 44));
+                taskbarIndicator.Measure(new Size(190, 44));
+                taskbarIndicator.Arrange(new Rect(0, 0, 190, 44));
                 taskbarIndicator.UpdateLayout();
                 UpdateBindings(taskbarIndicator);
-                CaptureIfRequested(taskbarIndicator, "taskbar", 134, 44);
+                CaptureIfRequested(taskbarIndicator, "taskbar", 190, 44);
                 var usageBar = Assert.IsType<System.Windows.Controls.ProgressBar>(taskbarIndicator.FindName("UsageBar"));
-                usageBar.Value = 14;
+                usageBar.SetCurrentValue(System.Windows.Controls.Primitives.RangeBase.ValueProperty, 14d);
                 taskbarIndicator.UpdateLayout();
                 var track = Assert.IsType<System.Windows.Controls.Border>(usageBar.Template.FindName("PART_Track", usageBar));
                 var indicator = Assert.IsType<System.Windows.Controls.Border>(usageBar.Template.FindName("PART_Indicator", usageBar));
@@ -233,6 +259,103 @@ public sealed class UiSmokeTests
                 Assert.InRange(trackRight - percentRight, 1.5, 2.5);
                 Assert.True(indicator.ActualWidth > 0, "A 14% remaining value must draw a visible indicator segment.");
                 Assert.True(indicator.ActualWidth < track.ActualWidth, "A 14% remaining value must not fill the entire track.");
+                var now = DateTimeOffset.Now;
+                var plusSnapshot = AccountUsageSnapshot.Empty with
+                {
+                    PlanType = "plus", UpdatedAt = now,
+                    RateLimits = [new("codex", Primary: new(86, 300, now.AddHours(3)), Secondary: new(33, 10_080, now.AddDays(4)))],
+                };
+                accountClient.Update(plusSnapshot);
+                UpdateBindings(taskbarIndicator);
+                taskbarIndicator.UpdateLayout();
+                var secondBar = Assert.IsType<System.Windows.Controls.ProgressBar>(taskbarIndicator.FindName("SecondaryUsageBar"));
+                var secondPanel = Assert.IsType<System.Windows.Controls.Grid>(taskbarIndicator.FindName("SecondaryPanel"));
+                Assert.Equal(14, usageBar.Value);
+                Assert.Equal(67, secondBar.Value);
+                Assert.Equal(Visibility.Visible, secondPanel.Visibility);
+                Assert.Equal(Color.FromRgb(245, 106, 0), Assert.IsType<SolidColorBrush>(usageBar.Foreground).Color);
+                var titleText = Assert.IsType<System.Windows.Controls.TextBlock>(taskbarIndicator.FindName("TitleText"));
+                _ = RenderElement(taskbarIndicator, 190, 44);
+                Assert.True(titleText.DesiredSize.Width <= percentText.TranslatePoint(new Point(), taskbarIndicator).X - titleText.TranslatePoint(new Point(), taskbarIndicator).X,
+                    $"Taskbar label overlaps percentage: label={titleText.DesiredSize.Width}, percent left={percentText.TranslatePoint(new Point(), taskbarIndicator).X}, label left={titleText.TranslatePoint(new Point(), taskbarIndicator).X}.");
+                CaptureIfRequested(taskbarIndicator, "taskbar-plus", 190, 44);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "flyout-plus", 420, 584);
+
+                // Reparenting/reloading must restore colour observation as well as value bindings.
+                taskbarIndicator.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                taskbarIndicator.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                accountClient.Update(plusSnapshot with { RateLimits = [new("codex", Primary: new(99, 300, now.AddHours(3)), Secondary: new(33, 10_080, now.AddDays(4)))] });
+                Assert.Equal(Color.FromRgb(180, 35, 46), Assert.IsType<SolidColorBrush>(usageBar.Foreground).Color);
+
+                var flyoutColor = Assert.IsType<SolidColorBrush>(model.FiveHourLimitBrush).Color;
+                var textPicker = Assert.IsType<System.Windows.Controls.ComboBox>(window.FindName("TaskbarTextColorPicker"));
+                var barPicker = Assert.IsType<System.Windows.Controls.ComboBox>(window.FindName("TaskbarBarColorPicker"));
+                foreach (var (mode, expected) in new[]
+                {
+                    (TaskbarColorMode.White, Colors.White),
+                    (TaskbarColorMode.Black, Colors.Black),
+                    (TaskbarColorMode.Gray, Colors.Gray),
+                })
+                {
+                    textPicker.SetCurrentValue(System.Windows.Controls.Primitives.Selector.SelectedItemProperty, mode);
+                    barPicker.SetCurrentValue(System.Windows.Controls.Primitives.Selector.SelectedItemProperty, mode);
+                    Assert.Equal(expected, Assert.IsType<SolidColorBrush>(titleText.Foreground).Color);
+                    Assert.Equal(expected, Assert.IsType<SolidColorBrush>(percentText.Foreground).Color);
+                    Assert.Equal(expected, Assert.IsType<SolidColorBrush>(usageBar.Foreground).Color);
+                    Assert.Equal(expected, Assert.IsType<SolidColorBrush>(secondBar.Foreground).Color);
+                    Assert.Equal(flyoutColor, Assert.IsType<SolidColorBrush>(model.FiveHourLimitBrush).Color);
+                }
+                textPicker.SetCurrentValue(System.Windows.Controls.Primitives.Selector.SelectedItemProperty, TaskbarColorMode.Custom);
+                barPicker.SetCurrentValue(System.Windows.Controls.Primitives.Selector.SelectedItemProperty, TaskbarColorMode.Custom);
+                UpdateBindings(window);
+                var textHex = Assert.IsType<System.Windows.Controls.TextBox>(window.FindName("TaskbarTextHexInput"));
+                var barHex = Assert.IsType<System.Windows.Controls.TextBox>(window.FindName("TaskbarBarHexInput"));
+                textHex.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "#ffcc00");
+                barHex.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "#336699");
+                Assert.Equal("#FFCC00", settings.TaskbarCustomTextColor);
+                Assert.Equal("#336699", settings.TaskbarCustomBarColor);
+                Assert.Equal(Color.FromRgb(255, 204, 0), Assert.IsType<SolidColorBrush>(titleText.Foreground).Color);
+                Assert.Equal(Color.FromRgb(51, 102, 153), Assert.IsType<SolidColorBrush>(usageBar.Foreground).Color);
+                Assert.Equal(Color.FromArgb(64, 51, 102, 153), Assert.IsType<SolidColorBrush>(usageBar.Background).Color);
+                textHex.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "#bad");
+                barHex.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "#XYZXYZ");
+                Assert.NotEmpty(model.TaskbarTextColorError);
+                Assert.NotEmpty(model.TaskbarBarColorError);
+                Assert.Equal("#FFCC00", settings.TaskbarCustomTextColor);
+                Assert.Equal("#336699", settings.TaskbarCustomBarColor);
+                textHex.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "#ffcc00");
+                barHex.SetCurrentValue(System.Windows.Controls.TextBox.TextProperty, "#336699");
+                taskbarIndicator.ApplyTaskbarTheme(useDarkText: false);
+                Assert.Equal(Color.FromRgb(255, 204, 0), Assert.IsType<SolidColorBrush>(titleText.Foreground).Color);
+                Assert.Equal(Color.FromRgb(51, 102, 153), Assert.IsType<SolidColorBrush>(secondBar.Foreground).Color);
+                taskbarIndicator.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
+                taskbarIndicator.RaiseEvent(new RoutedEventArgs(FrameworkElement.LoadedEvent));
+                CaptureIfRequested(taskbarIndicator, "taskbar-custom", 190, 44);
+                model.ShowWidgetSettings = true;
+                UpdateBindings(window);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "settings-custom", 420, 584);
+                model.ShowWidgetSettings = false;
+                taskbarIndicator.ApplyTaskbarTheme(useDarkText: true);
+                model.TaskbarTextColorMode = model.TaskbarBarColorMode = TaskbarColorMode.Automatic;
+                Assert.Equal(Color.FromRgb(35, 38, 44), Assert.IsType<SolidColorBrush>(titleText.Foreground).Color);
+                Assert.Equal(Color.FromRgb(180, 35, 46), Assert.IsType<SolidColorBrush>(usageBar.Foreground).Color);
+
+                accountClient.Update(plusSnapshot with { PlanType = "pro" });
+                UpdateBindings(taskbarIndicator);
+                taskbarIndicator.Measure(new Size(134, 44));
+                taskbarIndicator.Arrange(new Rect(0, 0, 134, 44));
+                taskbarIndicator.UpdateLayout();
+                Assert.Equal(Visibility.Collapsed, secondPanel.Visibility);
+                Assert.Equal("Weekly", titleText.Text);
+                Assert.Equal(67, usageBar.Value);
+                Assert.Equal(484, window.Height);
+                CaptureIfRequested(taskbarIndicator, "taskbar-pro", 134, 44);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "flyout-pro", 420, 484);
+
+                accountClient.Update(AccountUsageSnapshot.Empty);
+                UpdateBindings(taskbarIndicator);
+                Assert.Equal("—", percentText.Text);
+                Assert.Equal(0, usageBar.Value);
                 step = "complete";
             }
             catch (Exception exception)
@@ -309,7 +432,7 @@ public sealed class UiSmokeTests
 
     private sealed class FakeAccountClient(AccountUsageSnapshot? snapshot = null) : ICodexAppServerClient
     {
-        public AccountUsageSnapshot Current { get; } = snapshot ?? AccountUsageSnapshot.Empty;
+        public AccountUsageSnapshot Current { get; private set; } = snapshot ?? AccountUsageSnapshot.Empty;
         public SourceHealth Health { get; } = SourceHealth.Starting("test");
         public event Action<AccountUsageSnapshot>? SnapshotChanged;
         public event Action<SourceHealth>? HealthChanged;
@@ -317,6 +440,11 @@ public sealed class UiSmokeTests
         public Task RefreshAsync(CancellationToken cancellationToken = default) => Task.CompletedTask;
         public ValueTask DisposeAsync() => ValueTask.CompletedTask;
         public void RaiseSnapshot() => SnapshotChanged?.Invoke(Current);
+        public void Update(AccountUsageSnapshot snapshot)
+        {
+            Current = snapshot;
+            RaiseSnapshot();
+        }
         public void RaiseHealth() => HealthChanged?.Invoke(Health);
     }
 

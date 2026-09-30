@@ -9,6 +9,72 @@ namespace LimitLens.Tests;
 public sealed class DashboardViewModelTests
 {
     [Fact]
+    public void PlusShowsSeparateLimitsAndForecastHistoryCannotMixWindows()
+    {
+        var now = DateTimeOffset.Now;
+        var reset = now.AddHours(2);
+        var settings = new DashboardSettings
+        {
+            UsageHistory =
+            [
+                new() { Timestamp = now.AddMinutes(-30), ResetAt = reset, RemainingPercent = 99, WindowDurationMinutes = 300, LimitId = "codex" },
+                new() { Timestamp = now.AddMinutes(-30), ResetAt = reset, RemainingPercent = 80, WindowDurationMinutes = 10_080, LimitId = "codex" },
+                new() { Timestamp = now.AddMinutes(-20), ResetAt = reset, RemainingPercent = 79, WindowDurationMinutes = 10_080, LimitId = "review" },
+            ],
+        };
+        var snapshot = AccountUsageSnapshot.Empty with
+        {
+            PlanType = "plus", UpdatedAt = now,
+            RateLimits = [new("codex", Primary: new(90, 300, reset), Secondary: new(30, 10_080, reset))],
+        };
+        using var model = new DashboardViewModel(new FakeAccountClient(snapshot), new FakeIndexer(),
+            new FakeSettingsStore(settings), new FakeStartupService(), settings, "Data");
+
+        Assert.True(model.ShowDualLimitIndicators);
+        Assert.Equal("10%", model.TaskbarPrimaryLimit.PercentageText);
+        Assert.Equal("70%", model.TaskbarSecondaryLimit.PercentageText);
+        Assert.Equal(70, model.ForecastRemainingPercent);
+        Assert.Equal("Weekly", model.ForecastWindowLabel);
+        Assert.Equal([80, 70], model.ForecastActualPoints.Select(sample => sample.RemainingPercent));
+        Assert.All(model.ForecastActualPoints, sample =>
+        {
+            Assert.Equal(10_080, sample.WindowDurationMinutes);
+            Assert.Equal("codex", sample.LimitId);
+        });
+    }
+
+    [Fact]
+    public void MissingUsageShowsUnknownInsteadOfAFullBar()
+    {
+        var settings = new DashboardSettings();
+        using var model = new DashboardViewModel(new FakeAccountClient(AccountUsageSnapshot.Empty with { PlanType = "plus" }),
+            new FakeIndexer(), new FakeSettingsStore(settings), new FakeStartupService(), settings, "Data");
+        Assert.False(model.HasUsageData);
+        Assert.Equal("—", model.ForecastRemainingText);
+        Assert.Equal("—", model.TaskbarPrimaryLimit.PercentageText);
+        Assert.Equal("—", model.TaskbarSecondaryLimit.PercentageText);
+        Assert.Equal(0, model.TaskbarPrimaryLimit.ProgressValue);
+        Assert.Equal("Unavailable", model.ForecastStatusText);
+        Assert.Empty(model.ForecastActualPoints);
+    }
+
+    [Fact]
+    public void MutesOnlyUntilTheEarliestFutureReset()
+    {
+        var now = DateTimeOffset.Now;
+        var settings = new DashboardSettings();
+        var snapshot = AccountUsageSnapshot.Empty with
+        {
+            PlanType = "plus", UpdatedAt = now,
+            RateLimits = [new("codex", Primary: new(20, 300, now.AddHours(2)), Secondary: new(30, 10_080, now.AddDays(4)))],
+        };
+        using var model = new DashboardViewModel(new FakeAccountClient(snapshot), new FakeIndexer(),
+            new FakeSettingsStore(settings), new FakeStartupService(), settings, "Data");
+        model.MuteUntilReset();
+        Assert.Equal(now.AddHours(2), settings.AlertsMutedUntil);
+    }
+
+    [Fact]
     public void PersistsModeAndCardOrdering()
     {
         var settings = new DashboardSettings();
@@ -278,7 +344,7 @@ public sealed class DashboardViewModelTests
             [new RateLimitBucket(
                 "codex",
                 PlanType: "pro",
-                Primary: new RateLimitWindow(35, 300, now.AddHours(4)),
+                Primary: new RateLimitWindow(35, 10_080, now.AddDays(4)),
                 Credits: new CreditsSnapshot(true, false, "42.50831"))],
             new ResetCreditSummary(3),
             now);

@@ -21,6 +21,8 @@ public sealed class ShowcaseAccountClient : ICodexAppServerClient
             Timestamp = start.AddDays(point.Days),
             RemainingPercent = point.Remaining,
             ResetAt = reset,
+            WindowDurationMinutes = 7 * 24 * 60,
+            LimitId = "codex",
         }).ToArray();
         Current = new AccountUsageSnapshot(
             "plus",
@@ -30,6 +32,7 @@ public sealed class ShowcaseAccountClient : ICodexAppServerClient
                 "codex",
                 "Codex",
                 "plus",
+                new RateLimitWindow(24, 300, now.AddHours(3)),
                 new RateLimitWindow(33, 7 * 24 * 60, reset),
                 Credits: new CreditsSnapshot(true, false, "1484.37"))],
             new ResetCreditSummary(2),

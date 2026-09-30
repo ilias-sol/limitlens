@@ -7,6 +7,30 @@ namespace LimitLens.Tests;
 public sealed class TaskbarPlacementTests
 {
     [Theory]
+    [InlineData(0, 1920, 1700, 190, 5, 100, 1505)]
+    [InlineData(0, 1920, 1700, 190, 5, 0, 0)]
+    [InlineData(0, 1920, 1700, 190, 5, 50, 752)]
+    [InlineData(-1920, 0, -220, 190, 5, 100, 1505)]
+    [InlineData(1920, 3840, 3620, 134, 5, 100, 1561)]
+    [InlineData(0, 2880, 2550, 285, 8, 100, 2257)]
+    [InlineData(0, 1920, 1700, 190, 5, -50, 0)]
+    [InlineData(0, 1920, 1700, 190, 5, 150, 1618)]
+    [InlineData(0, 1920, 1700, 190, 5, 200, 1730)]
+    [InlineData(0, 1920, 1700, 134, 5, 200, 1786)]
+    [InlineData(-1920, 0, -220, 190, 5, 200, 1730)]
+    [InlineData(1920, 3840, 3620, 134, 5, 200, 1786)]
+    [InlineData(0, 2880, 2550, 285, 8, 200, 2595)]
+    [InlineData(0, 1920, 1700, 190, 5, 250, 1730)]
+    [InlineData(0, 100, 90, 190, 5, 100, 0)]
+    [InlineData(0, 1920, 2500, 190, 5, 100, 1730)]
+    public void KeepsSavedPositionsAndReachesTheFullTaskbarRightEdge(int taskbarLeft, int taskbarRight,
+        int trayLeft, int widgetWidth, int clearance, int position, int expectedLeft)
+    {
+        Assert.Equal(expectedLeft, TaskbarPlacement.WidgetLeft(taskbarLeft, taskbarRight,
+            trayLeft, widgetWidth, clearance, position));
+    }
+
+    [Theory]
     [MemberData(nameof(TaskbarEdges))]
     public void DetectsTaskbarEdge(
         Rectangle workingArea,

@@ -63,6 +63,10 @@ public partial class MainWindow : Window
         };
         viewModel.AppearanceChanged += OnAppearanceChanged;
         viewModel.WidgetBehaviorChanged += UpdateFlyoutHeight;
+        viewModel.PropertyChanged += (_, args) =>
+        {
+            if (args.PropertyName == nameof(DashboardViewModel.ShowDualLimitIndicators)) UpdateFlyoutHeight();
+        };
     }
 
     public void ShowDashboard(Rect? anchor = null, string? page = null)
@@ -209,8 +213,8 @@ public partial class MainWindow : Window
     private void UpdateFlyoutHeight()
     {
         var height = viewModel.ShowWidgetSettings
-            ? 420
-            : 484;
+            ? 584
+            : viewModel.ShowDualLimitIndicators ? 584 : 484;
         Height = MinHeight = MaxHeight = height;
         if (IsVisible) PositionAtTaskbar();
     }

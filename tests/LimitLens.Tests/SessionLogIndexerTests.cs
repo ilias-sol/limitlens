@@ -16,6 +16,39 @@ public sealed class SessionLogIndexerTests
     private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
 
     [Fact]
+    public async Task KeepsFiveHourAndWeeklyHistorySeparateEvenWhenTheirResetsCoincide()
+    {
+        using var folder = new TempFolder();
+        var sessions = Directory.CreateDirectory(folder.GetPath("sessions"));
+        var now = DateTimeOffset.UtcNow;
+        var reset = now.AddHours(2).ToUnixTimeSeconds();
+        var line = JsonSerializer.Serialize(new
+        {
+            timestamp = now,
+            type = "event_msg",
+            payload = new
+            {
+                type = "token_count",
+                rate_limits = new
+                {
+                    limit_id = "codex",
+                    primary = new { used_percent = 80, window_minutes = 300, resets_at = reset },
+                    secondary = new { used_percent = 25, window_minutes = 10_080, resets_at = reset },
+                },
+            },
+        });
+        await File.WriteAllTextAsync(Path.Combine(sessions.FullName, "both.jsonl"), line + "\n", Utf8NoBom);
+        await using var indexer = new SessionLogIndexer(new SelectivelyFailingRepository("never"),
+            new DashboardSettings { CodexHomePath = folder.Path, PrivacySalt = Salt });
+        await indexer.StartAsync();
+
+        Assert.Equal(2, indexer.RateLimitHistory.Count);
+        Assert.Equal(20, indexer.RateLimitHistory.Single(sample => sample.WindowDurationMinutes == 300).RemainingPercent);
+        Assert.Equal(75, indexer.RateLimitHistory.Single(sample => sample.WindowDurationMinutes == 10_080).RemainingPercent);
+        Assert.All(indexer.RateLimitHistory, sample => Assert.Equal("codex", sample.LimitId));
+    }
+
+    [Fact]
     public async Task BackfillsAndCompactsPrimaryRateLimitHistoryFromSessionMetadata()
     {
         using var folder = new TempFolder();

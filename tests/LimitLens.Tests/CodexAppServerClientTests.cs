@@ -8,6 +8,18 @@ namespace LimitLens.Tests;
 
 public sealed class CodexAppServerClientTests
 {
+    [Theory]
+    [InlineData("{}")]
+    [InlineData("{\"usedPercent\":null}")]
+    [InlineData("{\"usedPercent\":-1}")]
+    public async Task UnknownWindowUsageDoesNotBecomeZeroUsed(string window)
+    {
+        await using var client = new CodexAppServerClient(new DashboardSettings());
+        _ = Invoke(client, "ApplyRateLimits", Element("{\"rateLimits\":{\"primary\":" + window + "}}"));
+        _ = Invoke(client, "PublishSnapshot");
+        Assert.Null(Assert.Single(client.Current.RateLimits).Primary);
+    }
+
     [Fact]
     public async Task ParsesDynamicBucketsOptionalUsageAndUnknownFields()
     {

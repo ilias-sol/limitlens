@@ -36,8 +36,15 @@ No browser tab. No account page. No noisy dashboard.
 
 ## What you get
 
-- **Usage remaining** — a persistent taskbar bar with the exact percentage left
+- **Usage remaining** — separate 5-hour and weekly taskbar bars for Plus;
+  a weekly bar for Pro and higher-tier layouts, each with the percentage left
 - **Reset timing** — a live countdown plus the full reset date and time
+- **Taskbar position** — move the whole widget with a saved slider in Settings;
+  move all the way to either edge, and reset to beside the tray. Choose a free spot
+  to avoid covering app buttons or tray icons.
+- **Taskbar colours** — separate text and bar colours: Automatic, White, Black,
+  Gray, or a custom `#RRGGBB` colour. Automatic bars retain low-usage colours.
+  These preferences do not change the flyout.
 - **Usage trajectory** — a smooth curve built from real recorded snapshots
 - **Forecasting** — a recent-pace prediction alongside the sustainable reset pace
 - **Credits** — optional available-credit and reset-credit cards when supplied
@@ -109,6 +116,17 @@ Get-FileHash .\LimitLens-Setup-0.1.1-win-x64.exe -Algorithm SHA256
 - Codex installed for account-level limits
 
 Local analytics remain available while account data is offline or unavailable.
+
+Limit windows are identified by the durations returned by Codex, rather than
+their primary/secondary position. Plus shows both windows in the flyout as well
+as the taskbar; the chart prefers the weekly window when it is available.
+Missing values display “—” instead of a full allowance. Hover over the taskbar
+indicator to see each window's reset countdown and data freshness.
+
+The compact weekly-only layout is also used for Business, Enterprise, and Edu.
+This is a display preference, not a statement that those plans have no other
+limits. Their actual entitlements can vary, and alerts still evaluate all
+returned windows. See the [official usage-limit documentation](https://learn.chatgpt.com/docs/pricing#what-are-the-usage-limits-for-my-plan).
 
 ## Build from source
 

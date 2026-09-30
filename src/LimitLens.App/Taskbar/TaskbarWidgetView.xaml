@@ -1,10 +1,11 @@
 <UserControl x:Class="LimitLens.App.Taskbar.TaskbarWidgetView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             Background="Transparent" Focusable="False" Cursor="Hand"
+             Background="Transparent" Focusable="False" Cursor="Hand" ToolTip="{Binding TaskbarToolTip}"
              UseLayoutRounding="True" SnapsToDevicePixels="True"
              TextOptions.TextFormattingMode="Display" TextOptions.TextRenderingMode="ClearType">
     <UserControl.Resources>
+        <BooleanToVisibilityConverter x:Key="BooleanToVisibilityConverter" />
         <SolidColorBrush x:Key="TaskbarTextBrush" Color="#F2FFFFFF" />
         <SolidColorBrush x:Key="TaskbarTrackBrush" Color="#52FFFFFF" />
         <SolidColorBrush x:Key="TaskbarFillBrush" Color="#E6FFFFFF" />
@@ -29,21 +30,44 @@
 
     <Border x:Name="HoverSurface" Margin="2" Padding="7,1" CornerRadius="5" Background="Transparent">
         <Grid Margin="2,-1,2,1" VerticalAlignment="Center">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*" />
+                <ColumnDefinition Width="Auto" />
+            </Grid.ColumnDefinitions>
+            <Grid>
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid>
-                    <TextBlock x:Name="TitleText" Text="Usage left" Foreground="{StaticResource TaskbarTextBrush}"
+                    <TextBlock x:Name="TitleText" Text="{Binding TaskbarPrimaryLimit.Label}" Foreground="{StaticResource TaskbarTextBrush}"
                                FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="11" FontWeight="SemiBold" />
                     <TextBlock x:Name="PercentText" HorizontalAlignment="Right" Margin="0,0,2,0"
-                               Text="{Binding ForecastRemainingPercent, StringFormat={}{0:0}%}"
+                               Text="{Binding TaskbarPrimaryLimit.PercentageText}"
                                Foreground="{StaticResource TaskbarTextBrush}"
                                FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="11" FontWeight="SemiBold" />
                 </Grid>
                 <ProgressBar x:Name="UsageBar" Grid.Row="1" Margin="0,4,0,0" Maximum="100"
-                             Value="{Binding ForecastRemainingPercent, Mode=OneWay}"
+                             Value="{Binding TaskbarPrimaryLimit.ProgressValue, Mode=OneWay}"
                              Style="{StaticResource TaskbarProgressStyle}" />
+            </Grid>
+            <Grid x:Name="SecondaryPanel" Grid.Column="1" Width="78" Margin="10,0,0,0"
+                  Visibility="{Binding ShowDualLimitIndicators, Converter={StaticResource BooleanToVisibilityConverter}}">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid>
+                    <TextBlock x:Name="SecondaryTitleText" Text="Weekly" Foreground="{StaticResource TaskbarTextBrush}"
+                               FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="11" FontWeight="SemiBold" />
+                    <TextBlock x:Name="SecondaryPercentText" HorizontalAlignment="Right" Margin="0,0,2,0"
+                               Text="{Binding TaskbarSecondaryLimit.PercentageText}" Foreground="{StaticResource TaskbarTextBrush}"
+                               FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="11" FontWeight="SemiBold" />
+                </Grid>
+                <ProgressBar x:Name="SecondaryUsageBar" Grid.Row="1" Margin="0,4,0,0" Maximum="100"
+                             Value="{Binding TaskbarSecondaryLimit.ProgressValue, Mode=OneWay}"
+                             Style="{StaticResource TaskbarProgressStyle}" />
+            </Grid>
         </Grid>
     </Border>
 </UserControl>
