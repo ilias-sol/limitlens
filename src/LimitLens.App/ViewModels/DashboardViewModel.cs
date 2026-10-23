@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Globalization;
 using System.IO;
+using System.Text.Json;
 using System.Windows;
 using System.Windows.Input;
 using LimitLens.App.Converters;
@@ -9,13 +10,19 @@ using LimitLens.Core.Abstractions;
 using LimitLens.Core.Models;
 using LimitLens.Core.Settings;
 using LimitLens.Core.Services;
+using LimitLens.Indexing.Claude;
 using Brush = System.Windows.Media.Brush;
 
 namespace LimitLens.App.ViewModels;
 
 public sealed class DashboardViewModel : ObservableObject, IDisposable
 {
-    private const int MaxUsageHistorySamples = 512;
+    private const double TaskbarChromeWidth = 22;
+    private const double TaskbarSlotGap = 10;
+    // Slot widths that fit "Weekly 100%", "Claude 5h 100%", and "Claude weekly 100%" at the taskbar font size.
+    private const double PlainTaskbarSlotWidth = 79;
+    private const double NamedTaskbarSlotWidth = 92;
+    private const double NamedWeeklyTaskbarSlotWidth = 108;
     private static readonly TimeSpan ResetTimestampTolerance = TimeSpan.FromMinutes(2);
     private static readonly IReadOnlyDictionary<string, string> CardNames =
         new Dictionary<string, string>(StringComparer.Ordinal)
@@ -28,11 +35,18 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             [DashboardCardIds.TokenBreakdown] = "Token breakdown",
         };
 
-    private readonly ICodexAppServerClient accountClient;
+    private readonly IAccountUsageClient accountClient;
     private readonly ISessionLogIndexer sessionIndexer;
     private readonly ISettingsStore settingsStore;
     private readonly IStartupRegistrationService startupService;
     private readonly DashboardSettings settings;
+    private readonly ClaudeCodeConnection? claudeConnection;
+    private ClaudeConnectionState? claudeState;
+    private string claudeConnectionText = string.Empty;
+    private IReadOnlyList<UsageHistorySample> forecastPoints = [];
+    private string? forecastProviderName;
+    private string taskbarPrimaryDescription = "Usage left";
+    private string taskbarSecondaryDescription = "Weekly";
     private AccountUsageSnapshot account;
     private LocalUsageAggregate local;
     private SourceHealth accountHealth;
@@ -47,18 +61,20 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     private string taskbarBarColorInput;
 
     public DashboardViewModel(
-        ICodexAppServerClient accountClient,
+        IAccountUsageClient accountClient,
         ISessionLogIndexer sessionIndexer,
         ISettingsStore settingsStore,
         IStartupRegistrationService startupService,
         DashboardSettings settings,
-        string dataLocation)
+        string dataLocation,
+        ClaudeCodeConnection? claudeConnection = null)
     {
         this.accountClient = accountClient;
         this.sessionIndexer = sessionIndexer;
         this.settingsStore = settingsStore;
         this.startupService = startupService;
         this.settings = settings;
+        this.claudeConnection = claudeConnection;
         taskbarTextColorInput = settings.TaskbarCustomTextColor;
         taskbarBarColorInput = settings.TaskbarCustomBarColor;
         DataLocation = dataLocation;
@@ -80,6 +96,9 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         RebuildCommand = new AsyncRelayCommand(_ => RebuildLocalDataAsync(), onException: ReportCommandFailure);
         DeleteCommand = new AsyncRelayCommand(_ => DeleteLocalDataAsync(), onException: ReportCommandFailure);
         ResetTaskbarPositionCommand = new RelayCommand(_ => TaskbarPositionPercent = 100);
+        ToggleClaudeConnectionCommand = new RelayCommand(_ => ToggleClaudeConnection(), _ => CanManageClaudeConnection);
+        PrimaryLimitGroup = EmptyGroup();
+        RefreshClaudeConnectionState();
 
         foreach (var id in settings.CardOrder)
         {
@@ -112,6 +131,90 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     public ICommand RebuildCommand { get; }
     public ICommand DeleteCommand { get; }
     public ICommand ResetTaskbarPositionCommand { get; }
+    public ICommand ToggleClaudeConnectionCommand { get; }
+
+    private static readonly LimitOption[] LimitWindowOptions =
+    [
+        new(LimitKeys.Auto, "Automatic"),
+        new(LimitKeys.CodexFiveHour, "Codex 5-hour"),
+        new(LimitKeys.CodexWeekly, "Codex weekly"),
+        new(LimitKeys.ClaudeFiveHour, "Claude 5-hour"),
+        new(LimitKeys.ClaudeWeekly, "Claude weekly"),
+    ];
+
+    public IReadOnlyList<LimitOption> TaskbarPrimaryOptions { get; } = LimitWindowOptions;
+
+    public IReadOnlyList<LimitOption> TaskbarSecondaryOptions { get; } = [.. LimitWindowOptions, new(LimitKeys.None, "None")];
+
+    public IReadOnlyList<LimitOption> ForecastOptions { get; } = [.. LimitWindowOptions, new(LimitKeys.None, "Off")];
+
+    public IReadOnlyList<FlyoutProviderOption> FlyoutProviderOptions { get; } =
+    [
+        new(FlyoutProviderMode.Automatic, "Automatic"),
+        new(FlyoutProviderMode.Codex, "Codex"),
+        new(FlyoutProviderMode.Claude, "Claude"),
+        new(FlyoutProviderMode.Both, "Codex and Claude"),
+    ];
+
+    public string SelectedTaskbarPrimaryLimit
+    {
+        get => settings.TaskbarPrimaryLimit;
+        set => SetLimitSetting(LimitKeys.Normalize(value, allowNone: false), settings.TaskbarPrimaryLimit,
+            normalized => settings.TaskbarPrimaryLimit = normalized);
+    }
+
+    public string SelectedTaskbarSecondaryLimit
+    {
+        get => settings.TaskbarSecondaryLimit;
+        set => SetLimitSetting(LimitKeys.Normalize(value, allowNone: true), settings.TaskbarSecondaryLimit,
+            normalized => settings.TaskbarSecondaryLimit = normalized);
+    }
+
+    public string SelectedForecastLimit
+    {
+        get => settings.ForecastLimit;
+        set => SetLimitSetting(LimitKeys.Normalize(value, allowNone: true), settings.ForecastLimit,
+            normalized => settings.ForecastLimit = normalized, nameof(ShowForecastCard));
+    }
+
+    public FlyoutProviderMode SelectedFlyoutProviders
+    {
+        get => settings.FlyoutProviders;
+        set
+        {
+            if (!Enum.IsDefined(value) || settings.FlyoutProviders == value) return;
+            settings.FlyoutProviders = value;
+            OnPropertyChanged();
+            RefreshForecast();
+            NotifyProviderVisibility();
+            WidgetBehaviorChanged?.Invoke();
+            QueueSettingsSave();
+        }
+    }
+
+    public bool ShowForecastCard => settings.ForecastLimit != LimitKeys.None;
+    public LimitGroupViewModel PrimaryLimitGroup { get; private set; }
+    public LimitGroupViewModel? SecondaryLimitGroup { get; private set; }
+    public bool ShowSecondaryLimitGroup => SecondaryLimitGroup is not null;
+    // Provider names are only needed to tell two groups apart.
+    public bool ShowLimitGroupNames => SecondaryLimitGroup is not null;
+    public bool ShowsCodexInFlyout => PrimaryLimitGroup.Name == "Codex" || SecondaryLimitGroup?.Name == "Codex";
+    public bool ShowResetCredits => ShowsCodexInFlyout;
+    public bool TaskbarUsesProviderLabels { get; private set; }
+    // Both slots share one width, sized for the longer label, so the two bars line up evenly.
+    public double TaskbarSlotWidth { get; private set; } = PlainTaskbarSlotWidth;
+    public double TaskbarSecondaryWidth => TaskbarSlotWidth;
+    public int TaskbarDualLogicalWidth => (int)(TaskbarChromeWidth + 2 * TaskbarSlotWidth + TaskbarSlotGap);
+
+    public bool CanManageClaudeConnection => claudeConnection?.IsAvailable == true;
+    public bool IsClaudeConnected => claudeState == ClaudeConnectionState.Connected;
+    public string ClaudeConnectionText => claudeConnectionText;
+    public string ClaudeConnectButtonText => claudeState switch
+    {
+        ClaudeConnectionState.Connected => "Disconnect",
+        ClaudeConnectionState.ConnectedElsewhere => "Reconnect",
+        _ => "Connect",
+    };
 
     public string SelectedPage
     {
@@ -151,6 +254,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         {
             if (SetProperty(ref showWidgetSettings, value))
             {
+                if (value) RefreshClaudeConnectionState();
                 OnPropertyChanged(nameof(ShowWidgetGraph));
                 WidgetBehaviorChanged?.Invoke();
             }
@@ -422,8 +526,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             OnPropertyChanged();
             OnPropertyChanged(nameof(UseLightTheme));
             OnPropertyChanged(nameof(UsageRemainingBrush));
-            OnPropertyChanged(nameof(DashboardMainLimitBrush));
-            OnPropertyChanged(nameof(FiveHourLimitBrush));
+            // Group bars carry theme-dependent brushes.
+            RefreshForecast();
             AppearanceChanged?.Invoke();
             QueueSettingsSave();
         }
@@ -512,53 +616,17 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         get => isRefreshing;
         private set => SetProperty(ref isRefreshing, value);
     }
-    public string FreshnessText
-    {
-        get
-        {
-            if (accountHealth.State is SourceConnectionState.SignedOut or SourceConnectionState.Missing or SourceConnectionState.LocalOnly)
-            {
-                return accountHealth.State switch
-                {
-                    SourceConnectionState.SignedOut => "Signed out",
-                    SourceConnectionState.Missing => "Codex missing",
-                    _ => "Account unavailable",
-                };
-            }
-            var updated = account.UpdatedAt > DateTimeOffset.MinValue
-                ? account.UpdatedAt
-                : accountHealth.LastSuccessfulUpdate;
-            if (updated is null)
-            {
-                return accountHealth.State switch
-                {
-                    SourceConnectionState.SignedOut => "Signed out",
-                    SourceConnectionState.Missing => "Codex missing",
-                    SourceConnectionState.LocalOnly => "Account unavailable",
-                    SourceConnectionState.Offline or SourceConnectionState.Faulted => "Offline",
-                    _ => "Waiting for data",
-                };
-            }
+    public string FreshnessText => ProviderFreshness(AccountLimitSelector.AutomaticProvider(account));
 
-            var age = DateTimeOffset.Now - updated.Value;
-            var ageText = age < TimeSpan.FromSeconds(45)
-                ? "just now"
-                : age < TimeSpan.FromHours(1)
-                    ? $"{Math.Max(1, (int)age.TotalMinutes)}m ago"
-                    : $"{Math.Max(1, (int)age.TotalHours)}h ago";
-            if (accountHealth.State is SourceConnectionState.Offline or SourceConnectionState.Faulted)
-            {
-                return $"Offline · {ageText}";
-            }
-
-            var staleAfter = TimeSpan.FromSeconds(Math.Max(120, settings.AccountRefreshSeconds * 2));
-            return age > staleAfter ? $"Stale · {ageText}" : $"Updated {ageText}";
-        }
-    }
     public string PlanText
     {
         get
         {
+            if (!ShowsCodexInFlyout && PrimaryLimitGroup.Name == "Claude")
+            {
+                return "Claude";
+            }
+
             var plan = AccountLimitSelector.Select(account).Bucket?.PlanType ?? account.PlanType;
             return plan?.Trim().ToLowerInvariant() switch
             {
@@ -602,18 +670,19 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     public bool HasForecastWindow => ForecastWindowStart is { } start && ForecastResetAt > start;
     public string ForecastRemainingText => HasUsageData ? $"{ForecastRemainingPercent:0}%" : "—";
     public string ForecastWindowLabel { get; private set; } = "Usage";
-    public string ForecastChartTitle => $"{ForecastWindowLabel} usage trajectory";
-    public string UsageRemainingTitle => ShowDualLimitIndicators ? "Weekly usage remaining" :
-        ForecastWindowLabel == "Usage" ? "Usage remaining" : $"{ForecastWindowLabel} usage remaining";
+    public string ForecastChartTitle => forecastProviderName is null
+        ? $"{ForecastWindowLabel} usage trajectory"
+        : $"{forecastProviderName} {ForecastWindowLabel.ToLowerInvariant()} usage trajectory";
+    public string UsageRemainingTitle => PrimaryLimitGroup.MainTitle;
     public UsageIndicatorViewModel TaskbarPrimaryLimit { get; private set; } = new("Usage left", null, "Reset unavailable");
     public UsageIndicatorViewModel TaskbarSecondaryLimit { get; private set; } = new("Weekly", null, "Reset unavailable");
     public bool ShowDualLimitIndicators { get; private set; }
-    public UsageIndicatorViewModel DashboardMainLimit => ShowDualLimitIndicators ? TaskbarSecondaryLimit : TaskbarPrimaryLimit;
-    public Brush DashboardMainLimitBrush => UsageRemainingBrushConverter.Select(DashboardMainLimit.RemainingPercent ?? 100, SelectedTheme);
-    public Brush FiveHourLimitBrush => UsageRemainingBrushConverter.Select(TaskbarPrimaryLimit.RemainingPercent ?? 100, SelectedTheme);
+    public UsageIndicatorViewModel DashboardMainLimit => PrimaryLimitGroup.Main;
+    public Brush DashboardMainLimitBrush => PrimaryLimitGroup.MainBrush;
+    public Brush FiveHourLimitBrush => PrimaryLimitGroup.FiveHourBrush;
     public string TaskbarToolTip => ShowDualLimitIndicators
-        ? $"5-hour: {TaskbarPrimaryLimit.PercentageText} remaining · {TaskbarPrimaryLimit.ResetText}\nWeekly: {TaskbarSecondaryLimit.PercentageText} remaining · {TaskbarSecondaryLimit.ResetText}\n{FreshnessText}"
-        : $"{TaskbarPrimaryLimit.Label}: {TaskbarPrimaryLimit.PercentageText} remaining · {TaskbarPrimaryLimit.ResetText}\n{FreshnessText}";
+        ? $"{taskbarPrimaryDescription}: {TaskbarPrimaryLimit.PercentageText} remaining · {TaskbarPrimaryLimit.ResetText}\n{taskbarSecondaryDescription}: {TaskbarSecondaryLimit.PercentageText} remaining · {TaskbarSecondaryLimit.ResetText}\n{FreshnessText}"
+        : $"{taskbarPrimaryDescription}: {TaskbarPrimaryLimit.PercentageText} remaining · {TaskbarPrimaryLimit.ResetText}\n{FreshnessText}";
     public Brush UsageRemainingBrush => UsageRemainingBrushConverter.Select(HasUsageData ? ForecastRemainingPercent : 100, SelectedTheme);
     public double ForecastElapsedPercent { get; private set; }
     public double ForecastProjectedRemaining { get; private set; } = 100;
@@ -624,7 +693,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     public double ForecastUsagePointsPerDay { get; private set; }
     public string ForecastCurrentText { get; private set; } = "Usage forecast unavailable";
     public string ForecastSummary { get; private set; } = "Waiting for a complete rate-limit window.";
-    public IReadOnlyList<UsageHistorySample> ForecastActualPoints => settings.UsageHistory;
+    public IReadOnlyList<UsageHistorySample> ForecastActualPoints => forecastPoints;
     public string WidgetRemainingText => HasUsageData ? $"{ForecastRemainingPercent:0}% remaining" : "Usage unavailable";
     public string WidgetResetText => ForecastResetAt is { } reset ? FormatReset(reset) : "Reset time unavailable";
     public string WidgetResetShortText => ForecastResetAt is { } reset ? FormatRelativeReset(reset) : "Reset unavailable";
@@ -660,7 +729,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     };
     public string CreditsText { get; private set; } = string.Empty;
     public bool CreditsAvailable { get; private set; }
-    public bool CreditsVisible => ShowCreditsInWidget && CreditsAvailable;
+    public bool CreditsVisible => ShowCreditsInWidget && CreditsAvailable && ShowsCodexInFlyout;
     public string ResetCreditsText => account.ResetCredits is { } resetCredits
         ? resetCredits.AvailableCount.ToString("N0", CultureInfo.CurrentCulture)
         : "—";
@@ -669,6 +738,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     public event Action? AppearanceChanged;
     public event Action? RefreshIntervalChanged;
     public event Action? WidgetBehaviorChanged;
+    public event Action? FlyoutLayoutChanged;
 
     public DashboardSettings Settings => settings;
 
@@ -1070,18 +1140,21 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 
     private void RefreshForecast()
     {
-        var selected = AccountLimitSelector.Select(account);
-        var window = selected.Forecast;
+        var now = DateTimeOffset.Now;
+        var activeProviders = ProvidersWithData();
+        var labelProviders = activeProviders.Count > 1;
+        RefreshTaskbarLimits(labelProviders);
+        RefreshLimitGroups(activeProviders);
+        RecordUsageSamples(now);
+
+        var forecast = AccountLimitSelector.ResolveForecast(account, settings.ForecastLimit);
+        var window = forecast?.Window;
         HasUsageData = window is not null;
-        ForecastWindowLabel = selected.ForecastLabel;
-        if (ShowDualLimitIndicators != selected.ShowBoth)
-        {
-            ShowDualLimitIndicators = selected.ShowBoth;
-            OnPropertyChanged(nameof(ShowDualLimitIndicators));
-        }
-        var primaryWindow = selected.ShowBoth ? selected.FiveHour : window;
-        TaskbarPrimaryLimit = Indicator(selected.ShowBoth ? "5h" : selected.ForecastLabel == "Weekly" ? "Weekly" : "Usage left", primaryWindow);
-        TaskbarSecondaryLimit = Indicator("Weekly", selected.Weekly);
+        ForecastWindowLabel = forecast?.WindowLabel ?? "Usage";
+        forecastProviderName = labelProviders && forecast is not null ? ProviderName(forecast.Provider) : null;
+        forecastPoints = forecast?.Bucket is { } forecastBucket && window?.ResetsAt is { } forecastReset && window.WindowDurationMinutes is { } forecastDuration
+            ? SamplesFor(forecastBucket, forecastDuration, forecastReset)
+            : [];
         ForecastResetAt = window?.ResetsAt;
         ForecastEmptyAt = null;
         ForecastHasPrediction = false;
@@ -1103,7 +1176,6 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
 
         var duration = TimeSpan.FromMinutes(window.WindowDurationMinutes.Value);
         var start = reset - duration;
-        var now = DateTimeOffset.Now;
         var elapsedFraction = duration.TotalSeconds <= 0
             ? 0
             : Math.Clamp((now - start).TotalSeconds, 0, duration.TotalSeconds) / duration.TotalSeconds;
@@ -1112,9 +1184,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         ForecastElapsedPercent = elapsedFraction * 100;
         ForecastProjectedRemaining = window.RemainingPercent;
         ForecastCurrentText = $"{window.RemainingPercent}% remaining · resets {FormatForecastDate(reset)}";
-        RecordUsageSample(window, selected.Bucket?.Id, reset, now);
 
-        if (TryCalculateRecentForecast(start, reset, now, out var slopePerSecond))
+        if (TryCalculateRecentForecast(forecastPoints, start, now, out var slopePerSecond))
         {
             ForecastHasPrediction = true;
             ForecastUsagePointsPerDay = -slopePerSecond * TimeSpan.FromDays(1).TotalSeconds;
@@ -1177,16 +1248,346 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
         OnPropertyChanged(nameof(ForecastResetMetric));
         OnPropertyChanged(nameof(ForecastPaceMetric));
         OnPropertyChanged(nameof(ForecastRunwayMetric));
+        OnPropertyChanged(nameof(ShowForecastCard));
+        // Raised last: the flyout re-measures its height once everything above is bound.
+        FlyoutLayoutChanged?.Invoke();
     }
 
     private static UsageIndicatorViewModel Indicator(string label, RateLimitWindow? window) =>
         new(label, window?.RemainingPercent, window?.ResetsAt is { } reset ? FormatReset(reset) : "Reset unavailable");
 
-    private void RecordUsageSample(RateLimitWindow window, string? limitId, DateTimeOffset reset, DateTimeOffset now)
+    private void RefreshTaskbarLimits(bool labelProviders)
     {
-        var timestamp = account.UpdatedAt > DateTimeOffset.MinValue ? account.UpdatedAt : now;
+        var (primary, secondary) = AccountLimitSelector.ResolveTaskbar(
+            account,
+            settings.TaskbarPrimaryLimit,
+            settings.TaskbarSecondaryLimit);
+        if (ShowDualLimitIndicators != (secondary is not null))
+        {
+            ShowDualLimitIndicators = secondary is not null;
+            OnPropertyChanged(nameof(ShowDualLimitIndicators));
+        }
+
+        // Name a provider once: a second slot from the same provider reads as "Claude 5h · Weekly".
+        var secondaryNamed = labelProviders && secondary is not null && secondary.Provider != primary.Provider;
+        TaskbarPrimaryLimit = Indicator(TaskbarLabel(primary, labelProviders), primary.Window);
+        TaskbarSecondaryLimit = secondary is null
+            ? Indicator("Weekly", null)
+            : Indicator(TaskbarLabel(secondary, secondaryNamed), secondary.Window);
+        var slotWidth = Math.Max(
+            SlotWidthFor(TaskbarPrimaryLimit.Label, labelProviders),
+            secondary is null ? PlainTaskbarSlotWidth : SlotWidthFor(TaskbarSecondaryLimit.Label, secondaryNamed));
+        if (TaskbarUsesProviderLabels != labelProviders || Math.Abs(TaskbarSlotWidth - slotWidth) > 0.1)
+        {
+            TaskbarUsesProviderLabels = labelProviders;
+            TaskbarSlotWidth = slotWidth;
+            OnPropertyChanged(nameof(TaskbarUsesProviderLabels));
+            OnPropertyChanged(nameof(TaskbarSlotWidth));
+            OnPropertyChanged(nameof(TaskbarSecondaryWidth));
+            OnPropertyChanged(nameof(TaskbarDualLogicalWidth));
+        }
+        taskbarPrimaryDescription = Describe(primary, labelProviders);
+        taskbarSecondaryDescription = secondary is null ? "Weekly" : Describe(secondary, labelProviders);
+    }
+
+    private static string TaskbarLabel(DisplayedLimit limit, bool withProvider) => withProvider
+        ? limit.WindowLabel switch
+        {
+            "5-hour" => $"{ProviderName(limit.Provider)} 5h",
+            "Weekly" => $"{ProviderName(limit.Provider)} weekly",
+            _ => ProviderName(limit.Provider),
+        }
+        : limit.WindowLabel switch
+        {
+            "5-hour" => "5h",
+            "Weekly" => "Weekly",
+            _ => "Usage left",
+        };
+
+    private static double SlotWidthFor(string label, bool named) => !named
+        ? PlainTaskbarSlotWidth
+        : label.EndsWith(" weekly", StringComparison.Ordinal) ? NamedWeeklyTaskbarSlotWidth : NamedTaskbarSlotWidth;
+
+    private static string Describe(DisplayedLimit limit, bool withProvider) => withProvider
+        ? $"{ProviderName(limit.Provider)} {limit.WindowLabel.ToLowerInvariant()}"
+        : limit.WindowLabel == "Usage" ? "Usage left" : limit.WindowLabel;
+
+    private static string ProviderName(UsageProvider provider) => provider == UsageProvider.Claude ? "Claude" : "Codex";
+
+    private List<UsageProvider> ProvidersWithData() =>
+        new[] { UsageProvider.Codex, UsageProvider.Claude }
+            .Where(provider => AccountLimitSelector.HasData(account, provider))
+            .ToList();
+
+    private void RefreshLimitGroups(IReadOnlyList<UsageProvider> activeProviders)
+    {
+        IReadOnlyList<UsageProvider> providers = settings.FlyoutProviders switch
+        {
+            FlyoutProviderMode.Codex => [UsageProvider.Codex],
+            FlyoutProviderMode.Claude => [UsageProvider.Claude],
+            FlyoutProviderMode.Both => [UsageProvider.Codex, UsageProvider.Claude],
+            _ => activeProviders.Count > 0 ? activeProviders : [AccountLimitSelector.AutomaticProvider(account)],
+        };
+        PrimaryLimitGroup = BuildGroup(providers[0]);
+        SecondaryLimitGroup = providers.Count > 1 ? BuildGroup(providers[1]) : null;
+        OnPropertyChanged(nameof(PrimaryLimitGroup));
+        OnPropertyChanged(nameof(SecondaryLimitGroup));
+        OnPropertyChanged(nameof(ShowSecondaryLimitGroup));
+        OnPropertyChanged(nameof(ShowLimitGroupNames));
+        NotifyProviderVisibility();
+    }
+
+    private LimitGroupViewModel BuildGroup(UsageProvider provider)
+    {
+        var selected = AccountLimitSelector.Select(account, provider);
+        var fiveHour = selected.ShowBoth ? Indicator("5h", selected.FiveHour) : null;
+        var mainWindow = selected.ShowBoth ? selected.Weekly : selected.Forecast;
+        var mainTitle = selected.ShowBoth || selected.ForecastLabel == "Weekly"
+            ? "Weekly usage remaining"
+            : selected.ForecastLabel == "Usage" ? "Usage remaining" : $"{selected.ForecastLabel} usage remaining";
+        var main = Indicator(selected.ShowBoth ? "Weekly" : selected.ForecastLabel, mainWindow);
+        return new LimitGroupViewModel(
+            ProviderName(provider),
+            ProviderFreshness(provider),
+            fiveHour,
+            UsageRemainingBrushConverter.Select(fiveHour?.RemainingPercent ?? 100, SelectedTheme),
+            mainTitle,
+            main,
+            UsageRemainingBrushConverter.Select(main.RemainingPercent ?? 100, SelectedTheme));
+    }
+
+    private LimitGroupViewModel EmptyGroup() => new(
+        "Codex",
+        string.Empty,
+        null,
+        UsageRemainingBrushConverter.Select(100, SelectedTheme),
+        "Usage remaining",
+        Indicator("Usage", null),
+        UsageRemainingBrushConverter.Select(100, SelectedTheme));
+
+    private void NotifyProviderVisibility()
+    {
+        OnPropertyChanged(nameof(ShowsCodexInFlyout));
+        OnPropertyChanged(nameof(ShowResetCredits));
+        OnPropertyChanged(nameof(CreditsVisible));
+        OnPropertyChanged(nameof(PlanText));
+        OnPropertyChanged(nameof(PlanShortText));
+    }
+
+    private SourceHealth HealthOf(UsageProvider provider) => accountClient is IProviderHealthSource source
+        ? source.GetHealth(provider)
+        : provider == UsageProvider.Codex
+            ? accountHealth
+            : new SourceHealth(SourceConnectionState.Missing, "Claude Code is not connected.");
+
+    private string ProviderFreshness(UsageProvider provider)
+    {
+        var health = HealthOf(provider);
+        if (provider == UsageProvider.Claude)
+        {
+            if (AccountLimitSelector.Select(account, provider).Bucket?.UpdatedAt is not { } claudeUpdated)
+            {
+                return health.State == SourceConnectionState.Missing ? "Not connected" : "Waiting for Claude Code";
+            }
+
+            // Claude limits refresh whenever Claude Code renders its status line, so age alone is not staleness.
+            return $"Updated {FormatAge(DateTimeOffset.Now - claudeUpdated)}";
+        }
+
+        if (health.State is SourceConnectionState.SignedOut or SourceConnectionState.Missing or SourceConnectionState.LocalOnly)
+        {
+            return health.State switch
+            {
+                SourceConnectionState.SignedOut => "Signed out",
+                SourceConnectionState.Missing => "Codex missing",
+                _ => "Account unavailable",
+            };
+        }
+
+        var updated = account.UpdatedAt > DateTimeOffset.MinValue
+            ? account.UpdatedAt
+            : health.LastSuccessfulUpdate;
+        if (updated is null)
+        {
+            return health.State switch
+            {
+                SourceConnectionState.Offline or SourceConnectionState.Faulted => "Offline",
+                _ => "Waiting for data",
+            };
+        }
+
+        var age = DateTimeOffset.Now - updated.Value;
+        var ageText = FormatAge(age);
+        if (health.State is SourceConnectionState.Offline or SourceConnectionState.Faulted)
+        {
+            return $"Offline · {ageText}";
+        }
+
+        var staleAfter = TimeSpan.FromSeconds(Math.Max(120, settings.AccountRefreshSeconds * 2));
+        return age > staleAfter ? $"Stale · {ageText}" : $"Updated {ageText}";
+    }
+
+    private static string FormatAge(TimeSpan age) => age < TimeSpan.FromSeconds(45)
+        ? "just now"
+        : age < TimeSpan.FromHours(1)
+            ? $"{Math.Max(1, (int)age.TotalMinutes)}m ago"
+            : age < TimeSpan.FromDays(2)
+                ? $"{Math.Max(1, (int)age.TotalHours)}h ago"
+                : $"{(int)age.TotalDays}d ago";
+
+    private void SetLimitSetting(string normalized, string current, Action<string> assign, string? dependentProperty = null)
+    {
+        if (normalized == current) return;
+        assign(normalized);
+        OnPropertyChanged(nameof(SelectedTaskbarPrimaryLimit));
+        OnPropertyChanged(nameof(SelectedTaskbarSecondaryLimit));
+        OnPropertyChanged(nameof(SelectedForecastLimit));
+        if (dependentProperty is not null) OnPropertyChanged(dependentProperty);
+        RefreshForecast();
+        WidgetBehaviorChanged?.Invoke();
+        QueueSettingsSave();
+    }
+
+    private void RefreshClaudeConnectionState()
+    {
+        if (!CanManageClaudeConnection)
+        {
+            claudeState = null;
+            claudeConnectionText = "Claude Code setup is unavailable in this mode.";
+        }
+        else
+        {
+            try
+            {
+                claudeState = claudeConnection!.GetState();
+                claudeConnectionText = claudeState switch
+                {
+                    ClaudeConnectionState.Connected => "Connected. Limits update after each Claude Code reply.",
+                    ClaudeConnectionState.ConnectedElsewhere => "Connected to another Limit Lens copy. Reconnect to use this one.",
+                    _ when !claudeConnection.HasGitBash => "Requires Git for Windows (Git Bash), which Claude Code uses to run status lines.",
+                    _ => "Shows Claude Pro and Max limits from the Claude Code status line. Your existing status line keeps working.",
+                };
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+            {
+                claudeState = null;
+                claudeConnectionText = $"Claude Code settings could not be read: {exception.Message}";
+            }
+        }
+
+        OnPropertyChanged(nameof(IsClaudeConnected));
+        OnPropertyChanged(nameof(ClaudeConnectionText));
+        OnPropertyChanged(nameof(ClaudeConnectButtonText));
+    }
+
+    private void ToggleClaudeConnection()
+    {
+        if (claudeConnection is null)
+        {
+            return;
+        }
+
+        string? failure = null;
+        try
+        {
+            if (claudeState == ClaudeConnectionState.Connected)
+            {
+                claudeConnection.Disconnect(settings.ClaudePreviousStatusLine);
+                settings.ClaudePreviousStatusLine = null;
+                StatusMessage = "Claude Code status line restored.";
+            }
+            else
+            {
+                settings.ClaudePreviousStatusLine = claudeConnection.Connect(settings.ClaudePreviousStatusLine);
+                StatusMessage = "Claude Code connected. Limits appear after its next reply.";
+            }
+
+            QueueSettingsSave();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException or InvalidOperationException)
+        {
+            failure = exception is InvalidOperationException
+                ? exception.Message
+                : $"Claude Code settings could not be changed: {exception.Message}";
+            StatusMessage = failure;
+        }
+
+        RefreshClaudeConnectionState();
+        if (failure is not null)
+        {
+            // The settings page shows this text, so the reason stays visible beside the button.
+            claudeConnectionText = failure;
+            OnPropertyChanged(nameof(ClaudeConnectionText));
+        }
+    }
+
+    /// <summary>
+    /// Records every current limit window, so switching the taskbar or graph to another window
+    /// starts with its history. Each window keeps its own compacted curve.
+    /// </summary>
+    private void RecordUsageSamples(DateTimeOffset now)
+    {
+        var forecastWindow = AccountLimitSelector.ResolveForecast(account, settings.ForecastLimit)?.Window;
+        var windows = account.RateLimits
+            .SelectMany(bucket => new[] { bucket.Primary, bucket.Secondary }
+                .Where(window => window?.ResetsAt is not null && window.WindowDurationMinutes is > 0)
+                .Select(window => (Bucket: bucket, Window: window!)))
+            // Legacy samples without a limit id belong to whichever window claims them first: the graph's.
+            .OrderBy(entry => ReferenceEquals(entry.Window, forecastWindow) ? 0 : 1)
+            .ToArray();
+        var history = settings.UsageHistory.ToList();
+        foreach (var (bucket, window) in windows)
+        {
+            var duration = window.WindowDurationMinutes!.Value;
+            var belongs = history.Where(sample => BelongsTo(sample, bucket, duration)).ToArray();
+            var external = bucket.Provider == UsageProvider.Codex
+                ? sessionIndexer.RateLimitHistory.Where(sample => BelongsTo(sample, bucket, duration))
+                : [];
+            history = history
+                .Where(sample => !BelongsTo(sample, bucket, duration))
+                .Concat(CompactWindow(belongs.Concat(external), bucket, window, now).TakeLast(DashboardSettings.MaxSamplesPerWindow))
+                .ToList();
+        }
+
+        var replacement = history
+            .Where(sample => sample.ResetAt > now - ResetTimestampTolerance)
+            .OrderBy(sample => sample.Timestamp)
+            .TakeLast(DashboardSettings.MaxUsageHistorySamples)
+            .ToList();
+        if (UsageHistoriesEqual(settings.UsageHistory, replacement))
+        {
+            return;
+        }
+
+        settings.UsageHistory = replacement;
+        QueueSettingsSave();
+    }
+
+    private static bool BelongsTo(UsageHistorySample sample, RateLimitBucket bucket, long durationMinutes) =>
+        bucket.Provider == UsageProvider.Claude
+            ? string.Equals(sample.LimitId, bucket.Id, StringComparison.OrdinalIgnoreCase) &&
+              sample.WindowDurationMinutes == durationMinutes
+            // Codex history predates limit ids and durations; those samples stay attributable to Codex.
+            : (sample.LimitId is null || string.Equals(sample.LimitId, bucket.Id, StringComparison.OrdinalIgnoreCase)) &&
+              (sample.WindowDurationMinutes is null || sample.WindowDurationMinutes == durationMinutes);
+
+    private IReadOnlyList<UsageHistorySample> SamplesFor(RateLimitBucket bucket, long durationMinutes, DateTimeOffset reset) =>
+        settings.UsageHistory
+            .Where(sample => BelongsTo(sample, bucket, durationMinutes) && IsSameResetWindow(sample.ResetAt, reset))
+            .OrderBy(sample => sample.Timestamp)
+            .ToArray();
+
+    private List<UsageHistorySample> CompactWindow(
+        IEnumerable<UsageHistorySample> samples,
+        RateLimitBucket bucket,
+        RateLimitWindow window,
+        DateTimeOffset now)
+    {
+        var reset = window.ResetsAt!.Value;
+        var limitId = bucket.Id;
+        var timestamp = bucket.UpdatedAt ?? (account.UpdatedAt > DateTimeOffset.MinValue ? account.UpdatedAt : now);
         timestamp = timestamp > now.AddMinutes(1) ? now : timestamp;
-        var start = ForecastWindowStart ?? timestamp;
+        var start = reset - TimeSpan.FromMinutes(window.WindowDurationMinutes!.Value);
         var current = new UsageHistorySample
         {
             Timestamp = timestamp,
@@ -1195,12 +1596,9 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             WindowDurationMinutes = window.WindowDurationMinutes,
             LimitId = limitId,
         };
-        var candidates = settings.UsageHistory
-            .Concat(sessionIndexer.RateLimitHistory)
+        var candidates = samples
             .Append(current)
             .Where(sample => IsSameResetWindow(sample.ResetAt, reset) &&
-                             (sample.WindowDurationMinutes is null || sample.WindowDurationMinutes == window.WindowDurationMinutes) &&
-                             (sample.LimitId is null || string.Equals(sample.LimitId, limitId, StringComparison.OrdinalIgnoreCase)) &&
                              sample.Timestamp >= start - ResetTimestampTolerance &&
                              sample.Timestamp <= timestamp &&
                              sample.RemainingPercent >= window.RemainingPercent &&
@@ -1239,14 +1637,7 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             }
         }
 
-        var replacement = compacted.TakeLast(MaxUsageHistorySamples).ToList();
-        if (UsageHistoriesEqual(settings.UsageHistory, replacement))
-        {
-            return;
-        }
-
-        settings.UsageHistory = replacement;
-        QueueSettingsSave();
+        return compacted;
     }
 
     private static bool IsSameResetWindow(DateTimeOffset first, DateTimeOffset second) =>
@@ -1262,9 +1653,9 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             pair.First.WindowDurationMinutes == pair.Second.WindowDurationMinutes &&
             pair.First.LimitId == pair.Second.LimitId);
 
-    private bool TryCalculateRecentForecast(
+    private static bool TryCalculateRecentForecast(
+        IReadOnlyList<UsageHistorySample> windowSamples,
         DateTimeOffset start,
-        DateTimeOffset reset,
         DateTimeOffset now,
         out double slopePerSecond)
     {
@@ -1275,9 +1666,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
             cutoff = start;
         }
 
-        var samples = settings.UsageHistory
-            .Where(sample => IsSameResetWindow(sample.ResetAt, reset) &&
-                             sample.Timestamp >= cutoff &&
+        var samples = windowSamples
+            .Where(sample => sample.Timestamp >= cutoff &&
                              sample.Timestamp <= now.AddMinutes(1))
             .OrderBy(sample => sample.Timestamp)
             .GroupBy(sample => sample.Timestamp)

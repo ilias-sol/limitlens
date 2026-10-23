@@ -1,6 +1,7 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using LimitLens.Core.Abstractions;
+using LimitLens.Core.Services;
 using LimitLens.Core.Settings;
 
 namespace LimitLens.Indexing.Storage;
@@ -149,6 +150,17 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
         {
             settings.FlyoutPosition = FlyoutPosition.Right;
         }
+        if (!Enum.IsDefined(settings.Theme))
+        {
+            settings.Theme = DashboardTheme.DarkGlass;
+        }
+        if (!Enum.IsDefined(settings.FlyoutProviders))
+        {
+            settings.FlyoutProviders = FlyoutProviderMode.Automatic;
+        }
+        settings.TaskbarPrimaryLimit = LimitKeys.Normalize(settings.TaskbarPrimaryLimit, allowNone: false);
+        settings.TaskbarSecondaryLimit = LimitKeys.Normalize(settings.TaskbarSecondaryLimit, allowNone: true);
+        settings.ForecastLimit = LimitKeys.Normalize(settings.ForecastLimit, allowNone: true);
         settings.AccountRefreshSeconds = Math.Clamp(settings.AccountRefreshSeconds, 30, 900);
         settings.WidgetOpacity = Math.Clamp(settings.WidgetOpacity, 0.65, 1);
         settings.UsageHistory = (settings.UsageHistory ?? [])
@@ -157,7 +169,7 @@ public sealed class JsonSettingsStore(AppStoragePaths paths) : ISettingsStore
                              (previousSchema >= 10 || sample.WindowDurationMinutes is > 0) &&
                              sample.RemainingPercent is >= 0 and <= 100)
             .OrderBy(sample => sample.Timestamp)
-            .TakeLast(512)
+            .TakeLast(DashboardSettings.MaxUsageHistorySamples)
             .ToList();
         settings.AlertThresholds = settings.AlertThresholds
             .Where(value => value is >= 0 and <= 100)

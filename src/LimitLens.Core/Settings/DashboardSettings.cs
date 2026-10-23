@@ -5,6 +5,17 @@ public enum DashboardTheme
     DarkGlass,
     System,
     Light,
+    Clay,
+    ClayDark,
+}
+
+public enum FlyoutProviderMode
+{
+    // Shows each provider that currently has data.
+    Automatic,
+    Codex,
+    Claude,
+    Both,
 }
 
 public enum DashboardWindowMode
@@ -60,8 +71,11 @@ public sealed class UsageHistorySample
 
 public sealed class DashboardSettings
 {
-    public const int CurrentSchemaVersion = 10;
+    public const int CurrentSchemaVersion = 11;
     public const int MaxTaskbarPosition = 200;
+    // Every recorded limit window shares this budget; each window keeps at most 512 samples.
+    public const int MaxUsageHistorySamples = 2048;
+    public const int MaxSamplesPerWindow = 512;
 
     public int SchemaVersion { get; set; } = CurrentSchemaVersion;
     public DashboardWindowMode WindowMode { get; set; } = DashboardWindowMode.Compact;
@@ -79,6 +93,13 @@ public sealed class DashboardSettings
     public string TaskbarCustomTextColor { get; set; } = TaskbarColors.DefaultCustomColor;
     public string TaskbarCustomBarColor { get; set; } = TaskbarColors.DefaultCustomColor;
     public double WidgetOpacity { get; set; } = 1;
+    // Limit keys are defined by LimitKeys in LimitLens.Core.Services.
+    public string TaskbarPrimaryLimit { get; set; } = "auto";
+    public string TaskbarSecondaryLimit { get; set; } = "auto";
+    public string ForecastLimit { get; set; } = "auto";
+    public FlyoutProviderMode FlyoutProviders { get; set; } = FlyoutProviderMode.Automatic;
+    // The Claude Code statusLine object that Limit Lens replaced, restored on disconnect.
+    public string? ClaudePreviousStatusLine { get; set; }
     public List<UsageHistorySample> UsageHistory { get; set; } = [];
     public bool AlertsEnabled { get; set; } = true;
     public DateTimeOffset? AlertsMutedUntil { get; set; }

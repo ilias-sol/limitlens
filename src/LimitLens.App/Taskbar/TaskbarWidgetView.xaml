@@ -51,14 +51,14 @@
                              Value="{Binding TaskbarPrimaryLimit.ProgressValue, Mode=OneWay}"
                              Style="{StaticResource TaskbarProgressStyle}" />
             </Grid>
-            <Grid x:Name="SecondaryPanel" Grid.Column="1" Width="78" Margin="10,0,0,0"
+            <Grid x:Name="SecondaryPanel" Grid.Column="1" Width="{Binding TaskbarSecondaryWidth}" Margin="10,0,0,0"
                   Visibility="{Binding ShowDualLimitIndicators, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
                     <RowDefinition Height="Auto" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Grid>
-                    <TextBlock x:Name="SecondaryTitleText" Text="Weekly" Foreground="{StaticResource TaskbarTextBrush}"
+                    <TextBlock x:Name="SecondaryTitleText" Text="{Binding TaskbarSecondaryLimit.Label}" Foreground="{StaticResource TaskbarTextBrush}"
                                FontFamily="Segoe UI Variable Text, Segoe UI" FontSize="11" FontWeight="SemiBold" />
                     <TextBlock x:Name="SecondaryPercentText" HorizontalAlignment="Right" Margin="0,0,2,0"
                                Text="{Binding TaskbarSecondaryLimit.PercentageText}" Foreground="{StaticResource TaskbarTextBrush}"

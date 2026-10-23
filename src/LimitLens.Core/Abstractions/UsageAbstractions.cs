@@ -3,7 +3,7 @@ using LimitLens.Core.Settings;
 
 namespace LimitLens.Core.Abstractions;
 
-public interface ICodexAppServerClient : IAsyncDisposable
+public interface IAccountUsageClient : IAsyncDisposable
 {
     AccountUsageSnapshot Current { get; }
     SourceHealth Health { get; }
@@ -11,6 +11,11 @@ public interface ICodexAppServerClient : IAsyncDisposable
     event Action<SourceHealth>? HealthChanged;
     Task StartAsync(CancellationToken cancellationToken = default);
     Task RefreshAsync(CancellationToken cancellationToken = default);
+}
+
+public interface IProviderHealthSource
+{
+    SourceHealth GetHealth(UsageProvider provider);
 }
 
 public interface ISessionLogIndexer : IAsyncDisposable

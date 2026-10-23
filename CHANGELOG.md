@@ -2,6 +2,25 @@
 
 All notable changes to Limit Lens are documented here.
 
+## Unreleased
+
+### Added
+
+- Claude Pro and Max limits (5-hour and weekly) from the Claude Code status line.
+  Settings → Claude Code → Connect installs Limit Lens as the status line and keeps
+  any existing status line running after it; Disconnect restores it.
+- Choose the limit in each of the two taskbar slots (Automatic, Codex or Claude
+  5-hour/weekly, or None for the second slot).
+- Choose which limit the prediction graph follows, or turn the graph off.
+- Choose which providers' bars the flyout shows: Automatic, Codex, Claude, or both.
+- Clay and Clay Dark appearances: a warm ivory/slate palette with a clay accent and
+  serif headings. Appearance is now a picker instead of a light/dark toggle.
+
+### Changed
+
+- Usage history is recorded for every limit window, so switching the graph keeps
+  its history. The flyout fits its content and scrolls on short screens.
+
 ## 0.1.4 - 2026-09-30
 
 ### Added

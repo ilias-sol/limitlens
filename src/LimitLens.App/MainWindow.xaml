@@ -30,7 +30,9 @@
         <SolidColorBrush x:Key="FlyoutTrack" Color="#26FFFFFF" />
         <SolidColorBrush x:Key="FlyoutHover" Color="#14FFFFFF" />
         <SolidColorBrush x:Key="FlyoutPressed" Color="#20FFFFFF" />
+        <SolidColorBrush x:Key="FlyoutMenuSurface" Color="#FF26292F" />
         <Thickness x:Key="FlyoutCardBorderThickness">0</Thickness>
+        <FontFamily x:Key="FlyoutTitleFont">Segoe UI Variable Display, Segoe UI</FontFamily>
 
         <Style TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
@@ -44,8 +46,287 @@
         </Style>
         <Style x:Key="FlyoutSectionTitle" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+            <Setter Property="FontFamily" Value="{DynamicResource FlyoutTitleFont}" />
             <Setter Property="FontSize" Value="14" />
             <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="FlyoutGroupName" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutBlue}" />
+            <Setter Property="FontFamily" Value="{DynamicResource FlyoutTitleFont}" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="0,0,0,8" />
+        </Style>
+        <!-- Settings pickers follow the flyout palette rather than the Fluent theme. -->
+        <Style TargetType="ComboBox">
+            <Style.Resources>
+                <Style TargetType="TextBlock">
+                    <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+                    <Setter Property="FontFamily" Value="Segoe UI Variable Text, Segoe UI" />
+                </Style>
+            </Style.Resources>
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Width" Value="168" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="MaxDropDownHeight" Value="260" />
+            <Setter Property="ItemContainerStyle">
+                <Setter.Value>
+                    <Style TargetType="ComboBoxItem">
+                        <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+                        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+                        <Setter Property="Template">
+                            <Setter.Value>
+                                <ControlTemplate TargetType="ComboBoxItem">
+                                    <Border x:Name="Surface" Background="Transparent" CornerRadius="5" Margin="4,1" Padding="9,6">
+                                        <ContentPresenter />
+                                    </Border>
+                                    <ControlTemplate.Triggers>
+                                        <Trigger Property="IsHighlighted" Value="True">
+                                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource FlyoutHover}" />
+                                        </Trigger>
+                                        <Trigger Property="IsSelected" Value="True">
+                                            <Setter TargetName="Surface" Property="Background" Value="{DynamicResource FlyoutPressed}" />
+                                            <Setter Property="FontWeight" Value="SemiBold" />
+                                        </Trigger>
+                                    </ControlTemplate.Triggers>
+                                </ControlTemplate>
+                            </Setter.Value>
+                        </Setter>
+                    </Style>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ComboBox">
+                        <Grid>
+                            <!-- Fluent's ToggleButton style left-aligns the button; the field must fill the combo box. -->
+                            <ToggleButton x:Name="DropDownToggle" Focusable="False" ClickMode="Press"
+                                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                                          MinWidth="0" MinHeight="0" Padding="0"
+                                          IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}">
+                                <ToggleButton.Template>
+                                    <ControlTemplate TargetType="ToggleButton">
+                                        <Border x:Name="Surface" Background="{DynamicResource FlyoutHover}"
+                                                BorderBrush="{DynamicResource FlyoutBorder}" BorderThickness="1" CornerRadius="7">
+                                            <TextBlock Text="&#xE70D;" FontFamily="Segoe Fluent Icons" FontSize="10"
+                                                       Foreground="{DynamicResource FlyoutMuted}"
+                                                       HorizontalAlignment="Right" VerticalAlignment="Center" Margin="0,1,11,0" />
+                                        </Border>
+                                        <ControlTemplate.Triggers>
+                                            <Trigger Property="IsMouseOver" Value="True">
+                                                <Setter TargetName="Surface" Property="Background" Value="{DynamicResource FlyoutPressed}" />
+                                            </Trigger>
+                                            <Trigger Property="IsChecked" Value="True">
+                                                <Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource FlyoutBlue}" />
+                                            </Trigger>
+                                        </ControlTemplate.Triggers>
+                                    </ControlTemplate>
+                                </ToggleButton.Template>
+                            </ToggleButton>
+                            <ContentPresenter IsHitTestVisible="False" Margin="11,0,30,0"
+                                              HorizontalAlignment="Left" VerticalAlignment="Center"
+                                              Content="{TemplateBinding SelectionBoxItem}"
+                                              ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}"
+                                              ContentTemplateSelector="{TemplateBinding ItemTemplateSelector}"
+                                              ContentStringFormat="{TemplateBinding SelectionBoxItemStringFormat}" />
+                            <Popup x:Name="PART_Popup" Placement="Bottom" AllowsTransparency="True" Focusable="False"
+                                   PopupAnimation="Fade" IsOpen="{TemplateBinding IsDropDownOpen}">
+                                <Border Background="{DynamicResource FlyoutMenuSurface}" BorderBrush="{DynamicResource FlyoutBorder}"
+                                        BorderThickness="1" CornerRadius="8" Padding="0,4" Margin="0,4,0,0"
+                                        MinWidth="{Binding ActualWidth, RelativeSource={RelativeSource TemplatedParent}}"
+                                        MaxHeight="{TemplateBinding MaxDropDownHeight}">
+                                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Contained" />
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Settings page: titled sections, each a card of evenly spaced rows. -->
+        <Style x:Key="FlyoutSectionHeading" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+            <Setter Property="FontFamily" Value="{DynamicResource FlyoutTitleFont}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Margin" Value="8,16,0,8" />
+        </Style>
+        <Style x:Key="FlyoutCard" TargetType="Border">
+            <Setter Property="Background" Value="{DynamicResource FlyoutLayer}" />
+            <Setter Property="BorderBrush" Value="{DynamicResource FlyoutBorder}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="8" />
+            <Setter Property="Padding" Value="14,0" />
+        </Style>
+        <Style x:Key="FlyoutRow" TargetType="Grid">
+            <Setter Property="MinHeight" Value="52" />
+        </Style>
+        <Style x:Key="FlyoutRowLabel" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+            <Setter Property="FontSize" Value="13" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+        </Style>
+        <Style x:Key="FlyoutRowCaption" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutMuted}" />
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="0,3,0,0" />
+        </Style>
+        <Style x:Key="FlyoutFootnote" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutMuted}" />
+            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="Margin" Value="8,8,8,0" />
+        </Style>
+        <Style x:Key="FlyoutRowDivider" TargetType="Border">
+            <Setter Property="Height" Value="1" />
+            <Setter Property="Margin" Value="-14,0" />
+            <Setter Property="Background" Value="{DynamicResource FlyoutDivider}" />
+        </Style>
+        <Style x:Key="FlyoutAccentButton" TargetType="Button">
+            <!-- An explicit text colour; the app-wide TextBlock style would otherwise recolour string content. -->
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate><TextBlock Text="{Binding}" Foreground="White" /></DataTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="Foreground" Value="White" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="{DynamicResource FlyoutBlue}" CornerRadius="7"
+                                Padding="16,0" MinWidth="96" Height="32">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"
+                                              TextElement.Foreground="White" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.9" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Opacity" Value="0.8" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="FlyoutLinkButton" TargetType="Button">
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate><TextBlock Text="{Binding}" Foreground="{DynamicResource FlyoutBlue}" /></DataTemplate>
+                </Setter.Value>
+            </Setter>
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Surface" Background="Transparent" CornerRadius="6" Padding="8,5">
+                            <ContentPresenter TextElement.Foreground="{DynamicResource FlyoutBlue}" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource FlyoutHover}" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="Surface" Property="Background" Value="{DynamicResource FlyoutPressed}" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="TextBox">
+            <Setter Property="Width" Value="168" />
+            <Setter Property="Height" Value="32" />
+            <Setter Property="HorizontalAlignment" Value="Right" />
+            <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
+            <Setter Property="CaretBrush" Value="{DynamicResource FlyoutText}" />
+            <Setter Property="SelectionBrush" Value="{DynamicResource FlyoutBlue}" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="VerticalContentAlignment" Value="Center" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TextBox">
+                        <Border x:Name="Surface" Background="{DynamicResource FlyoutHover}" BorderBrush="{DynamicResource FlyoutBorder}"
+                                BorderThickness="1" CornerRadius="7" Padding="8,0">
+                            <ScrollViewer x:Name="PART_ContentHost" VerticalAlignment="Center" Focusable="False" />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Surface" Property="BorderBrush" Value="{DynamicResource FlyoutBlue}" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="FlyoutSliderFill" TargetType="RepeatButton">
+            <Setter Property="OverridesDefaultStyle" Value="True" />
+            <Setter Property="Focusable" Value="False" />
+            <Setter Property="IsTabStop" Value="False" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RepeatButton">
+                        <Grid Background="Transparent">
+                            <Border Height="4" CornerRadius="2" Background="{TemplateBinding Background}" VerticalAlignment="Center" />
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style TargetType="Slider">
+            <Setter Property="Height" Value="28" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Slider">
+                        <Grid Background="Transparent">
+                            <Border Height="4" CornerRadius="2" Background="{DynamicResource FlyoutTrack}" VerticalAlignment="Center" />
+                            <Track x:Name="PART_Track">
+                                <Track.DecreaseRepeatButton>
+                                    <RepeatButton Command="Slider.DecreaseLarge" Style="{StaticResource FlyoutSliderFill}"
+                                                  Background="{DynamicResource FlyoutBlue}" />
+                                </Track.DecreaseRepeatButton>
+                                <Track.IncreaseRepeatButton>
+                                    <RepeatButton Command="Slider.IncreaseLarge" Style="{StaticResource FlyoutSliderFill}"
+                                                  Background="Transparent" />
+                                </Track.IncreaseRepeatButton>
+                                <Track.Thumb>
+                                    <Thumb Width="18" Height="18" OverridesDefaultStyle="True">
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Grid>
+                                                    <Ellipse Fill="{DynamicResource FlyoutMenuSurface}" Stroke="{DynamicResource FlyoutBorder}" />
+                                                    <Ellipse x:Name="Dot" Width="8" Height="8" Fill="{DynamicResource FlyoutBlue}" />
+                                                </Grid>
+                                                <ControlTemplate.Triggers>
+                                                    <Trigger Property="IsMouseOver" Value="True">
+                                                        <Setter TargetName="Dot" Property="Width" Value="10" />
+                                                        <Setter TargetName="Dot" Property="Height" Value="10" />
+                                                    </Trigger>
+                                                </ControlTemplate.Triggers>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <Style x:Key="FlyoutIconButton" TargetType="Button">
             <Setter Property="Width" Value="34" />
@@ -88,7 +369,8 @@
         <Style x:Key="FlyoutToggle" TargetType="CheckBox">
             <Setter Property="Foreground" Value="{DynamicResource FlyoutText}" />
             <Setter Property="FontSize" Value="13" />
-            <Setter Property="Height" Value="40" />
+            <Setter Property="Height" Value="52" />
+            <Setter Property="Margin" Value="0" />
             <Setter Property="Cursor" Value="Hand" />
             <Setter Property="FocusVisualStyle" Value="{x:Null}" />
             <Setter Property="Template">
@@ -182,46 +464,85 @@
         <Grid Margin="10">
             <Grid Visibility="{Binding ShowWidgetGraph, Converter={StaticResource BooleanToVisibilityConverter}}">
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
+                <!-- The flyout sizes to its content; on short screens the cards scroll and the footer stays. -->
+                <ScrollViewer x:Name="UsageScrollViewer" VerticalScrollBarVisibility="Auto"
+                              HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
                 <StackPanel>
                     <Border Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
                             BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="15,13" Margin="0,0,0,10">
-                        <StackPanel>
-                            <StackPanel Visibility="{Binding ShowDualLimitIndicators, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel DataContext="{Binding PrimaryLimitGroup}">
+                            <TextBlock x:Name="PrimaryGroupName" Text="{Binding Name}" Style="{StaticResource FlyoutGroupName}"
+                                       Visibility="{Binding DataContext.ShowLimitGroupNames, RelativeSource={RelativeSource AncestorType=Window}, Converter={StaticResource BooleanToVisibilityConverter}}" />
+                            <StackPanel Visibility="{Binding ShowFiveHour, Converter={StaticResource BooleanToVisibilityConverter}}">
                                 <Grid>
                                     <TextBlock Text="5-hour usage remaining" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
-                                    <TextBlock Text="{Binding TaskbarPrimaryLimit.PercentageText}" HorizontalAlignment="Right" FontSize="21" FontWeight="SemiBold" />
+                                    <TextBlock Text="{Binding FiveHour.PercentageText}" HorizontalAlignment="Right" FontSize="21" FontWeight="SemiBold" />
                                 </Grid>
                                 <ProgressBar Style="{StaticResource FlyoutProgress}" Maximum="100"
-                                             Value="{Binding TaskbarPrimaryLimit.ProgressValue, Mode=OneWay}" Foreground="{Binding FiveHourLimitBrush}" Margin="0,13,0,9" />
-                                <TextBlock Text="{Binding TaskbarPrimaryLimit.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
-                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding TaskbarPrimaryLimit.ResetText}" />
+                                             Value="{Binding FiveHour.ProgressValue, Mode=OneWay}" Foreground="{Binding FiveHourBrush}" Margin="0,13,0,9" />
+                                <TextBlock Text="{Binding FiveHour.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding FiveHour.ResetText}" />
                                 <Border Height="1" Background="{DynamicResource FlyoutDivider}" Margin="0,12,0,12" />
                             </StackPanel>
                             <Grid>
-                                <TextBlock x:Name="UsageRemainingLabel" Text="{Binding UsageRemainingTitle}" FontSize="14"
+                                <TextBlock x:Name="UsageRemainingLabel" Text="{Binding MainTitle}" FontSize="14"
                                            FontWeight="SemiBold" VerticalAlignment="Center" />
-                                <TextBlock Text="{Binding DashboardMainLimit.PercentageText}"
+                                <TextBlock Text="{Binding Main.PercentageText}"
                                            HorizontalAlignment="Right" FontSize="21" FontWeight="SemiBold" />
                             </Grid>
                             <ProgressBar x:Name="UsageRemainingProgress" Style="{StaticResource FlyoutProgress}" Maximum="100"
-                                         Value="{Binding DashboardMainLimit.ProgressValue, Mode=OneWay}"
-                                         Foreground="{Binding DashboardMainLimitBrush}"
+                                         Value="{Binding Main.ProgressValue, Mode=OneWay}"
+                                         Foreground="{Binding MainBrush}"
                                          Margin="0,13,0,9" />
                             <Grid>
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock Text="{Binding DashboardMainLimit.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
-                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding DashboardMainLimit.ResetText}" />
-                                <TextBlock Grid.Column="1" Text="{Binding FreshnessText}" Style="{StaticResource FlyoutCaption}"
+                                <TextBlock Text="{Binding Main.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Main.ResetText}" />
+                                <TextBlock Grid.Column="1" Text="{Binding Freshness}" Style="{StaticResource FlyoutCaption}"
                                            Margin="8,0,0,0" FontSize="11" />
                             </Grid>
                         </StackPanel>
                     </Border>
 
-                    <Border Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
-                            BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="14" Margin="0,0,0,10">
+                    <Border x:Name="SecondaryLimitGroupCard" Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
+                            BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="15,13" Margin="0,0,0,10"
+                            Visibility="{Binding ShowSecondaryLimitGroup, Converter={StaticResource BooleanToVisibilityConverter}}">
+                        <StackPanel DataContext="{Binding SecondaryLimitGroup}">
+                            <TextBlock x:Name="SecondaryGroupName" Text="{Binding Name}" Style="{StaticResource FlyoutGroupName}" />
+                            <StackPanel Visibility="{Binding ShowFiveHour, Converter={StaticResource BooleanToVisibilityConverter}, FallbackValue=Collapsed}">
+                                <Grid>
+                                    <TextBlock Text="5-hour usage remaining" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                    <TextBlock Text="{Binding FiveHour.PercentageText}" HorizontalAlignment="Right" FontSize="21" FontWeight="SemiBold" />
+                                </Grid>
+                                <ProgressBar Style="{StaticResource FlyoutProgress}" Maximum="100"
+                                             Value="{Binding FiveHour.ProgressValue, Mode=OneWay, FallbackValue=0}" Foreground="{Binding FiveHourBrush}" Margin="0,13,0,9" />
+                                <TextBlock Text="{Binding FiveHour.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding FiveHour.ResetText}" />
+                                <Border Height="1" Background="{DynamicResource FlyoutDivider}" Margin="0,12,0,12" />
+                            </StackPanel>
+                            <Grid>
+                                <TextBlock Text="{Binding MainTitle}" FontSize="14" FontWeight="SemiBold" VerticalAlignment="Center" />
+                                <TextBlock Text="{Binding Main.PercentageText}" HorizontalAlignment="Right" FontSize="21" FontWeight="SemiBold" />
+                            </Grid>
+                            <ProgressBar Style="{StaticResource FlyoutProgress}" Maximum="100"
+                                         Value="{Binding Main.ProgressValue, Mode=OneWay, FallbackValue=0}"
+                                         Foreground="{Binding MainBrush}" Margin="0,13,0,9" />
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Text="{Binding Main.ResetText}" Style="{StaticResource FlyoutCaption}" FontSize="12"
+                                           TextTrimming="CharacterEllipsis" ToolTip="{Binding Main.ResetText}" />
+                                <TextBlock Grid.Column="1" Text="{Binding Freshness}" Style="{StaticResource FlyoutCaption}"
+                                           Margin="8,0,0,0" FontSize="11" />
+                            </Grid>
+                        </StackPanel>
+                    </Border>
+
+                    <Border x:Name="ForecastCard" Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
+                            BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="14" Margin="0,0,0,10"
+                            Visibility="{Binding ShowForecastCard, Converter={StaticResource BooleanToVisibilityConverter}}">
                         <StackPanel>
                             <TextBlock Text="{Binding ForecastChartTitle}" Style="{StaticResource FlyoutSectionTitle}" />
                             <controls:UsageForecastChart Height="177" Margin="0,8,0,6"
@@ -268,7 +589,8 @@
                             </Grid>
                         </Border>
                         <Border Background="{DynamicResource FlyoutLayerStrong}" BorderBrush="{DynamicResource FlyoutBorder}"
-                                BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="15,13">
+                                BorderThickness="{DynamicResource FlyoutCardBorderThickness}" CornerRadius="8" Padding="15,13"
+                                Visibility="{Binding ShowResetCredits, Converter={StaticResource BooleanToVisibilityConverter}}">
                             <Grid>
                                 <TextBlock Text="Resets available" FontSize="12" FontWeight="SemiBold" />
                                 <TextBlock Text="{Binding ResetCreditsText}" HorizontalAlignment="Right" FontSize="13" FontWeight="SemiBold" />
@@ -276,6 +598,7 @@
                         </Border>
                     </DockPanel>
                 </StackPanel>
+                </ScrollViewer>
                 <Border Grid.Row="1" BorderBrush="{DynamicResource FlyoutDivider}" BorderThickness="0,1,0,0"
                         Padding="15,5,0,0" Margin="0,8,0,0">
                     <Grid>
@@ -302,79 +625,137 @@
                     <RowDefinition Height="*" />
                     <RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
-                    <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="15,4,0,14" />
+                    <TextBlock Text="Settings" FontSize="20" FontWeight="SemiBold" Margin="8,4,0,6"
+                               FontFamily="{DynamicResource FlyoutTitleFont}" />
                     <ScrollViewer x:Name="SettingsScrollViewer" Grid.Row="1" VerticalScrollBarVisibility="Auto"
                                   HorizontalScrollBarVisibility="Disabled" PanningMode="VerticalOnly">
-                    <Border Background="{DynamicResource FlyoutLayer}" BorderBrush="{DynamicResource FlyoutBorder}"
-                            BorderThickness="{DynamicResource FlyoutCardBorderThickness}"
-                            CornerRadius="8" Padding="16,8,16,14">
-                        <StackPanel>
-                            <CheckBox IsChecked="{Binding UseLightTheme}" Style="{StaticResource FlyoutToggle}">
-                                <TextBlock x:Name="AppearanceLabel" Text="Light appearance"
-                                           Foreground="{DynamicResource FlyoutText}" FontSize="13" />
-                            </CheckBox>
-                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
-                            <Grid Margin="0,10,0,8">
-                                <TextBlock Text="Taskbar position" FontSize="13" VerticalAlignment="Center" />
-                                <Button x:Name="ResetTaskbarPositionButton"
-                                        Style="{StaticResource FlyoutBackButton}" HorizontalAlignment="Right"
-                                        Command="{Binding ResetTaskbarPositionCommand}">
-                                    <TextBlock Text="Reset position" Foreground="{DynamicResource FlyoutText}" FontSize="12" />
-                                </Button>
-                            </Grid>
-                            <Slider x:Name="TaskbarPositionSlider" Minimum="0" Maximum="{Binding TaskbarPositionMaximum}" TickFrequency="1"
-                                    IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10"
-                                    AutomationProperties.Name="Taskbar position"
-                                    Foreground="{DynamicResource FlyoutBlue}"
-                                    Value="{Binding TaskbarPositionPercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
-                            <Grid Margin="0,4,0,0">
-                                <TextBlock Text="Left" Foreground="{DynamicResource FlyoutMuted}" FontSize="11" />
-                                <TextBlock Text="Right" Foreground="{DynamicResource FlyoutMuted}" FontSize="11"
-                                           HorizontalAlignment="Right" />
-                            </Grid>
-                            <TextBlock Text="Moves across the whole taskbar. Reset returns it beside the tray. Choose a free spot to avoid covering apps or tray icons."
-                                       Foreground="{DynamicResource FlyoutMuted}" FontSize="12" TextWrapping="Wrap" Margin="0,7,0,11" />
-                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
-                            <Grid Margin="0,12,0,8">
-                                <TextBlock Text="Taskbar text colour" FontSize="13" VerticalAlignment="Center" />
-                                <ComboBox x:Name="TaskbarTextColorPicker" Width="140" Height="30" HorizontalAlignment="Right"
-                                          AutomationProperties.Name="Taskbar text colour"
-                                          ItemsSource="{Binding TaskbarColorOptions}"
-                                          SelectedItem="{Binding TaskbarTextColorMode, Mode=TwoWay}" />
-                            </Grid>
-                            <StackPanel Visibility="{Binding UseCustomTaskbarTextColor, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <Grid Margin="0,0,0,6">
-                                    <TextBlock Text="Hex colour" FontSize="12" VerticalAlignment="Center" />
-                                    <TextBox x:Name="TaskbarTextHexInput" Width="140" Height="30" Padding="6,4"
-                                             HorizontalAlignment="Right" MaxLength="7" AutomationProperties.Name="Taskbar text hex colour"
-                                             Text="{Binding TaskbarTextColorInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                        <StackPanel Margin="0,0,4,4">
+                            <TextBlock Text="Appearance" Style="{StaticResource FlyoutSectionHeading}" />
+                            <Border Style="{StaticResource FlyoutCard}">
+                                <Grid Style="{StaticResource FlyoutRow}">
+                                    <TextBlock x:Name="AppearanceLabel" Text="Theme" Style="{StaticResource FlyoutRowLabel}" />
+                                    <ComboBox x:Name="ThemePicker" AutomationProperties.Name="Appearance"
+                                              ItemsSource="{Binding ThemeOptions}"
+                                              SelectedItem="{Binding SelectedTheme, Mode=TwoWay}">
+                                        <ComboBox.ItemTemplate>
+                                            <DataTemplate>
+                                                <TextBlock Text="{Binding Converter={StaticResource ThemeNameConverter}}" />
+                                            </DataTemplate>
+                                        </ComboBox.ItemTemplate>
+                                    </ComboBox>
                                 </Grid>
-                                <TextBlock Text="{Binding TaskbarTextColorError}" Foreground="{DynamicResource FlyoutMuted}"
-                                           FontSize="12" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <Grid Margin="0,6,0,8">
-                                <TextBlock Text="Taskbar bar colour" FontSize="13" VerticalAlignment="Center" />
-                                <ComboBox x:Name="TaskbarBarColorPicker" Width="140" Height="30" HorizontalAlignment="Right"
-                                          AutomationProperties.Name="Taskbar bar colour"
-                                          ItemsSource="{Binding TaskbarColorOptions}"
-                                          SelectedItem="{Binding TaskbarBarColorMode, Mode=TwoWay}" />
-                            </Grid>
-                            <StackPanel Visibility="{Binding UseCustomTaskbarBarColor, Converter={StaticResource BooleanToVisibilityConverter}}">
-                                <Grid Margin="0,0,0,6">
-                                    <TextBlock Text="Hex colour" FontSize="12" VerticalAlignment="Center" />
-                                    <TextBox x:Name="TaskbarBarHexInput" Width="140" Height="30" Padding="6,4"
-                                             HorizontalAlignment="Right" MaxLength="7" AutomationProperties.Name="Taskbar bar hex colour"
-                                             Text="{Binding TaskbarBarColorInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                            </Border>
+
+                            <TextBlock Text="Limits" Style="{StaticResource FlyoutSectionHeading}" />
+                            <Border Style="{StaticResource FlyoutCard}">
+                                <StackPanel>
+                                    <Grid Style="{StaticResource FlyoutRow}">
+                                        <TextBlock Text="Taskbar bar 1" Style="{StaticResource FlyoutRowLabel}" />
+                                        <ComboBox x:Name="TaskbarPrimaryLimitPicker" AutomationProperties.Name="Taskbar bar 1"
+                                                  ItemsSource="{Binding TaskbarPrimaryOptions}" DisplayMemberPath="Name" SelectedValuePath="Key"
+                                                  SelectedValue="{Binding SelectedTaskbarPrimaryLimit, Mode=TwoWay}" />
+                                    </Grid>
+                                    <Border Style="{StaticResource FlyoutRowDivider}" />
+                                    <Grid Style="{StaticResource FlyoutRow}">
+                                        <TextBlock Text="Taskbar bar 2" Style="{StaticResource FlyoutRowLabel}" />
+                                        <ComboBox x:Name="TaskbarSecondaryLimitPicker" AutomationProperties.Name="Taskbar bar 2"
+                                                  ItemsSource="{Binding TaskbarSecondaryOptions}" DisplayMemberPath="Name" SelectedValuePath="Key"
+                                                  SelectedValue="{Binding SelectedTaskbarSecondaryLimit, Mode=TwoWay}" />
+                                    </Grid>
+                                    <Border Style="{StaticResource FlyoutRowDivider}" />
+                                    <Grid Style="{StaticResource FlyoutRow}">
+                                        <TextBlock Text="Prediction graph" Style="{StaticResource FlyoutRowLabel}" />
+                                        <ComboBox x:Name="ForecastLimitPicker" AutomationProperties.Name="Prediction graph"
+                                                  ItemsSource="{Binding ForecastOptions}" DisplayMemberPath="Name" SelectedValuePath="Key"
+                                                  SelectedValue="{Binding SelectedForecastLimit, Mode=TwoWay}" />
+                                    </Grid>
+                                    <Border Style="{StaticResource FlyoutRowDivider}" />
+                                    <Grid Style="{StaticResource FlyoutRow}">
+                                        <TextBlock Text="Flyout bars" Style="{StaticResource FlyoutRowLabel}" />
+                                        <ComboBox x:Name="FlyoutProvidersPicker" AutomationProperties.Name="Flyout bars"
+                                                  ItemsSource="{Binding FlyoutProviderOptions}" DisplayMemberPath="Name" SelectedValuePath="Mode"
+                                                  SelectedValue="{Binding SelectedFlyoutProviders, Mode=TwoWay}" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="Automatic shows Codex when it is available and Claude otherwise."
+                                       Style="{StaticResource FlyoutFootnote}" />
+
+                            <TextBlock Text="Claude Code" Style="{StaticResource FlyoutSectionHeading}" />
+                            <Border Style="{StaticResource FlyoutCard}">
+                                <Grid Margin="0,12,0,12">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <StackPanel VerticalAlignment="Center" Margin="0,0,12,0">
+                                        <TextBlock Text="Status line" FontSize="13" Foreground="{DynamicResource FlyoutText}" />
+                                        <TextBlock x:Name="ClaudeConnectionText" Text="{Binding ClaudeConnectionText}"
+                                                   Style="{StaticResource FlyoutRowCaption}" />
+                                    </StackPanel>
+                                    <Button x:Name="ClaudeConnectButton" Grid.Column="1" Style="{StaticResource FlyoutAccentButton}"
+                                            Command="{Binding ToggleClaudeConnectionCommand}"
+                                            Visibility="{Binding CanManageClaudeConnection, Converter={StaticResource BooleanToVisibilityConverter}}"
+                                            AutomationProperties.Name="Connect Claude Code"
+                                            Content="{Binding ClaudeConnectButtonText}" />
                                 </Grid>
-                                <TextBlock Text="{Binding TaskbarBarColorError}" Foreground="{DynamicResource FlyoutMuted}"
-                                           FontSize="12" TextWrapping="Wrap" />
-                            </StackPanel>
-                            <TextBlock Text="These colours apply to the taskbar only. Automatic bars change colour when usage is low."
-                                       Foreground="{DynamicResource FlyoutMuted}" FontSize="12" TextWrapping="Wrap" Margin="0,0,0,11" />
-                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
-                            <TextBlock x:Name="FlyoutPositionLabel" Text="Flyout position" FontSize="13"
-                                       Foreground="{DynamicResource FlyoutText}" Margin="0,11,0,8" />
-                            <UniformGrid Columns="3" Margin="-2,0,-2,11">
+                            </Border>
+
+                            <TextBlock Text="Taskbar" Style="{StaticResource FlyoutSectionHeading}" />
+                            <Border Style="{StaticResource FlyoutCard}">
+                                <StackPanel>
+                                    <Grid Margin="0,12,0,4">
+                                        <TextBlock Text="Position" Style="{StaticResource FlyoutRowLabel}" />
+                                        <Button x:Name="ResetTaskbarPositionButton" Style="{StaticResource FlyoutLinkButton}"
+                                                HorizontalAlignment="Right" Command="{Binding ResetTaskbarPositionCommand}"
+                                                Content="Reset position" />
+                                    </Grid>
+                                    <Slider x:Name="TaskbarPositionSlider" Minimum="0" Maximum="{Binding TaskbarPositionMaximum}" TickFrequency="1"
+                                            IsSnapToTickEnabled="True" SmallChange="1" LargeChange="10"
+                                            AutomationProperties.Name="Taskbar position"
+                                            Value="{Binding TaskbarPositionPercent, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                    <Grid Margin="0,0,0,12">
+                                        <TextBlock Text="Left" Style="{StaticResource FlyoutRowCaption}" Margin="0" />
+                                        <TextBlock Text="Right" Style="{StaticResource FlyoutRowCaption}" Margin="0" HorizontalAlignment="Right" />
+                                    </Grid>
+                                    <Border Style="{StaticResource FlyoutRowDivider}" />
+                                    <Grid Style="{StaticResource FlyoutRow}">
+                                        <TextBlock Text="Text colour" Style="{StaticResource FlyoutRowLabel}" />
+                                        <ComboBox x:Name="TaskbarTextColorPicker" AutomationProperties.Name="Taskbar text colour"
+                                                  ItemsSource="{Binding TaskbarColorOptions}"
+                                                  SelectedItem="{Binding TaskbarTextColorMode, Mode=TwoWay}" />
+                                    </Grid>
+                                    <StackPanel Visibility="{Binding UseCustomTaskbarTextColor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Grid Margin="0,0,0,10">
+                                            <TextBlock Text="Hex colour" Style="{StaticResource FlyoutRowCaption}" Margin="0" VerticalAlignment="Center" />
+                                            <TextBox x:Name="TaskbarTextHexInput" MaxLength="7" AutomationProperties.Name="Taskbar text hex colour"
+                                                     Text="{Binding TaskbarTextColorInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        </Grid>
+                                        <TextBlock Text="{Binding TaskbarTextColorError}" Style="{StaticResource FlyoutRowCaption}" Margin="0,0,0,8" />
+                                    </StackPanel>
+                                    <Border Style="{StaticResource FlyoutRowDivider}" />
+                                    <Grid Style="{StaticResource FlyoutRow}">
+                                        <TextBlock Text="Bar colour" Style="{StaticResource FlyoutRowLabel}" />
+                                        <ComboBox x:Name="TaskbarBarColorPicker" AutomationProperties.Name="Taskbar bar colour"
+                                                  ItemsSource="{Binding TaskbarColorOptions}"
+                                                  SelectedItem="{Binding TaskbarBarColorMode, Mode=TwoWay}" />
+                                    </Grid>
+                                    <StackPanel Visibility="{Binding UseCustomTaskbarBarColor, Converter={StaticResource BooleanToVisibilityConverter}}">
+                                        <Grid Margin="0,0,0,10">
+                                            <TextBlock Text="Hex colour" Style="{StaticResource FlyoutRowCaption}" Margin="0" VerticalAlignment="Center" />
+                                            <TextBox x:Name="TaskbarBarHexInput" MaxLength="7" AutomationProperties.Name="Taskbar bar hex colour"
+                                                     Text="{Binding TaskbarBarColorInput, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}" />
+                                        </Grid>
+                                        <TextBlock Text="{Binding TaskbarBarColorError}" Style="{StaticResource FlyoutRowCaption}" Margin="0,0,0,8" />
+                                    </StackPanel>
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Text="Choose a free spot so the indicator doesn't cover apps or tray icons. Colours apply to the taskbar only; Automatic bars turn orange and red when usage is low."
+                                       Style="{StaticResource FlyoutFootnote}" />
+
+                            <TextBlock Text="Flyout" Style="{StaticResource FlyoutSectionHeading}" />
+                            <Border Style="{StaticResource FlyoutCard}">
+                            <StackPanel>
+                            <TextBlock x:Name="FlyoutPositionLabel" Text="Position" Style="{StaticResource FlyoutRowLabel}"
+                                       Margin="0,12,0,8" />
+                            <UniformGrid Columns="3" Margin="-2,0,-2,12">
                                 <RadioButton x:Name="FlyoutPositionLeft" GroupName="FlyoutPosition"
                                              Margin="2,0" Style="{StaticResource FlyoutPositionButton}"
                                              IsChecked="{Binding IsFlyoutPositionLeft, Mode=TwoWay, UpdateSourceTrigger=PropertyChanged}">
@@ -424,25 +805,31 @@
                                     </TextBlock>
                                 </RadioButton>
                             </UniformGrid>
-                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
+                            <Border Style="{StaticResource FlyoutRowDivider}" />
                             <CheckBox IsChecked="{Binding ShowCreditsInWidget}" Style="{StaticResource FlyoutToggle}">
                                 <TextBlock x:Name="ShowCreditsLabel" Text="Show available credits"
                                            Foreground="{DynamicResource FlyoutText}" FontSize="13" />
                             </CheckBox>
-                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
-                            <CheckBox IsChecked="{Binding StartWithWindows}" Style="{StaticResource FlyoutToggle}">
-                                <TextBlock x:Name="StartWithWindowsLabel" Text="Start with Windows"
-                                           Foreground="{DynamicResource FlyoutText}" FontSize="13" />
-                            </CheckBox>
-                            <Border Height="1" Background="{DynamicResource FlyoutDivider}" />
-                            <CheckBox IsChecked="{Binding AlertsEnabled}" Style="{StaticResource FlyoutToggle}">
-                                <TextBlock x:Name="UsageAlertsLabel" Text="Usage alerts"
-                                           Foreground="{DynamicResource FlyoutText}" FontSize="13" />
-                            </CheckBox>
+                            </StackPanel>
+                            </Border>
+
+                            <TextBlock Text="General" Style="{StaticResource FlyoutSectionHeading}" />
+                            <Border Style="{StaticResource FlyoutCard}">
+                                <StackPanel>
+                                    <CheckBox IsChecked="{Binding StartWithWindows}" Style="{StaticResource FlyoutToggle}">
+                                        <TextBlock x:Name="StartWithWindowsLabel" Text="Start with Windows"
+                                                   Foreground="{DynamicResource FlyoutText}" FontSize="13" />
+                                    </CheckBox>
+                                    <Border Style="{StaticResource FlyoutRowDivider}" />
+                                    <CheckBox IsChecked="{Binding AlertsEnabled}" Style="{StaticResource FlyoutToggle}">
+                                        <TextBlock x:Name="UsageAlertsLabel" Text="Usage alerts"
+                                                   Foreground="{DynamicResource FlyoutText}" FontSize="13" />
+                                    </CheckBox>
+                                </StackPanel>
+                            </Border>
                             <TextBlock Text="Alerts fire once at 25%, 10%, and 0% remaining. The taskbar indicator restores itself after Explorer restarts."
-                                       Foreground="{DynamicResource FlyoutMuted}" FontSize="12" TextWrapping="Wrap" Margin="0,10,0,0" />
+                                       Style="{StaticResource FlyoutFootnote}" />
                         </StackPanel>
-                    </Border>
                     </ScrollViewer>
                     <Grid Grid.Row="2" Margin="7,12,7,0">
                         <Button x:Name="BackToUsageButton" Style="{StaticResource FlyoutBackButton}" HorizontalAlignment="Left"
