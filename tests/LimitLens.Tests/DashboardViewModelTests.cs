@@ -7,6 +7,7 @@ using LimitLens.Core.Settings;
 
 namespace LimitLens.Tests;
 
+[Collection(WpfApplicationCollection.Name)]
 public sealed class DashboardViewModelTests
 {
     [Fact]

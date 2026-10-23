@@ -1772,7 +1772,8 @@ public sealed class DashboardViewModel : ObservableObject, IDisposable
     private static void RunOnUi(Action action)
     {
         var dispatcher = System.Windows.Application.Current?.Dispatcher;
-        if (dispatcher is null || dispatcher.CheckAccess())
+        // A dispatcher whose thread has ended would queue the update forever (for example once a test's STA thread exits).
+        if (dispatcher is null || dispatcher.CheckAccess() || dispatcher.HasShutdownStarted || !dispatcher.Thread.IsAlive)
         {
             action();
             return;
