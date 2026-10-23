@@ -9,7 +9,7 @@
     <Description>Privacy-first Codex and Claude limit indicator integrated into the Windows taskbar.</Description>
     <StartupObject>LimitLens.App.Program</StartupObject>
     <Company>Limit Lens contributors</Company>
-    <VersionPrefix>0.1.4</VersionPrefix>
+    <VersionPrefix>0.2.0</VersionPrefix>
     <Copyright>Copyright © 2026 Limit Lens contributors</Copyright>
     <ApplicationIcon>Assets\LimitLens.ico</ApplicationIcon>
     <UseWPF>true</UseWPF>

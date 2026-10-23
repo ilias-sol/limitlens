@@ -204,7 +204,7 @@ public sealed class CodexAppServerClient(DashboardSettings settings) : IAccountU
                 {
                     name = "limit_lens_dashboard",
                     title = "Limit Lens",
-                    version = "0.1.4",
+                    version = "0.2.0",
                 },
             },
             cancellationToken).ConfigureAwait(false);

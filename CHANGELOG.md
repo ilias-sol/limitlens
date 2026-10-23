@@ -2,7 +2,7 @@
 
 All notable changes to Limit Lens are documented here.
 
-## Unreleased
+## 0.2.0 - 2026-10-23
 
 ### Added
 
