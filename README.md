@@ -5,7 +5,7 @@
 <h1 align="center">Limit Lens</h1>
 
 <p align="center">
-  Your Codex limit, always visible.<br>
+  Your Codex and Claude limits, always visible.<br>
   A polished Windows taskbar companion with a glanceable usage bar and a focused forecast.
 </p>
 
@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  Independent community project; not affiliated with or endorsed by OpenAI.
+  Independent community project; not affiliated with or endorsed by OpenAI or Anthropic.
 </p>
 
 ## Screenshot
@@ -38,6 +38,11 @@ No browser tab. No account page. No noisy dashboard.
 
 - **Usage remaining** — separate 5-hour and weekly taskbar bars for Plus;
   a weekly bar for Pro and higher-tier layouts, each with the percentage left
+- **Claude limits** — Claude Pro and Max 5-hour and weekly limits beside Codex,
+  read from Claude Code (see [Claude Code](#claude-code))
+- **Your layout** — choose the limit in each of the two taskbar slots, which limit
+  the prediction graph follows (or turn it off), and whether the flyout shows
+  Codex, Claude, or both
 - **Reset timing** — a live countdown plus the full reset date and time
 - **Taskbar position** — move the whole widget with a saved slider in Settings;
   move all the way to either edge, and reset to beside the tray. Choose a free spot
@@ -52,6 +57,8 @@ No browser tab. No account page. No noisy dashboard.
 - **Alerts** — deduplicated warnings at 25%, 10%, and 0% remaining
 - **Native behavior** — startup support, Explorer-restart recovery, tray access,
   light mode, and dark mode
+- **Clay appearance** — warm ivory (Clay) and charcoal (Clay Dark) palettes with a
+  clay accent and serif headings, beside the standard light and dark looks
 
 ## Designed to stay out of the way
 
@@ -76,6 +83,24 @@ workspace file contents, `auth.json`, or Codex-owned databases.
 
 Account-wide values and this-device analytics stay separate. Read the complete
 [privacy policy](PRIVACY.md).
+
+## Claude Code
+
+Claude Code reports your Claude Pro or Max usage to its status line. To show it
+in Limit Lens, open Settings → Claude Code → **Connect**. Limit Lens becomes the
+status-line command, keeps only the 5-hour and weekly percentages and reset
+times, and runs your previous status line (if you had one) so Claude Code looks
+the same. **Disconnect** restores your previous status line.
+
+Connecting requires Git for Windows (Git Bash), which Claude Code uses to run
+status-line commands when it is installed. Without it, Claude Code falls back to
+PowerShell, which cannot run Limit Lens as a status line, and Settings says so.
+
+Claude limits update whenever Claude Code renders its status line, which happens
+after each reply. They appear after the first reply of a session and can be
+older than Codex values while Claude Code is idle; the flyout shows when each
+provider last updated. Limit Lens does not read Claude credentials or call any
+Anthropic service.
 
 ## Download
 
@@ -114,6 +139,7 @@ Get-FileHash .\LimitLens-Setup-0.1.4-win-x64.exe -Algorithm SHA256
 - Windows 10 version 2004 or newer, or Windows 11
 - x64 processor
 - Codex installed for account-level limits
+- Claude Code with a Claude Pro or Max subscription for Claude limits (optional)
 
 Local analytics remain available while account data is offline or unavailable.
 
@@ -160,6 +186,8 @@ for screenshot testing. It must not be attached to a public release:
 | Installed | `%LOCALAPPDATA%\LimitLens` |
 | Portable | `Data` beside `LimitLens.exe` |
 | Codex input | `%CODEX_HOME%` or `%USERPROFILE%\.codex` |
+| Claude limits | `claude-usage.json` in the Limit Lens data folder |
+| Claude Code settings (Connect only) | `%CLAUDE_CONFIG_DIR%` or `%USERPROFILE%\.claude\settings.json` |
 
 Limit Lens never modifies the Codex home directory.
 

@@ -27,5 +27,7 @@ public sealed record AppStoragePaths(
             portable);
     }
 
+    public string ClaudeUsagePath => Path.Combine(RootDirectory, "claude-usage.json");
+
     public void EnsureCreated() => Directory.CreateDirectory(RootDirectory);
 }

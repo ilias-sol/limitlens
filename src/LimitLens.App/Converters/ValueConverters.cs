@@ -42,6 +42,8 @@ public sealed class ThemeNameConverter : IValueConverter
         DashboardTheme.DarkGlass => "Dark",
         DashboardTheme.System => "Follow Windows",
         DashboardTheme.Light => "Light",
+        DashboardTheme.Clay => "Clay",
+        DashboardTheme.ClayDark => "Clay Dark",
         _ => value?.ToString() ?? string.Empty,
     };
 
@@ -53,6 +55,8 @@ public sealed class UsageRemainingBrushConverter : IMultiValueConverter
 {
     private static readonly SolidColorBrush NormalLight = FrozenBrush(63, 71, 77);
     private static readonly SolidColorBrush NormalDark = FrozenBrush(193, 196, 203);
+    private static readonly SolidColorBrush NormalClay = FrozenBrush(61, 61, 58);
+    private static readonly SolidColorBrush NormalClayDark = FrozenBrush(232, 230, 220);
     private static readonly SolidColorBrush Warning = FrozenBrush(255, 157, 61);
     private static readonly SolidColorBrush Critical = FrozenBrush(255, 99, 112);
 
@@ -67,7 +71,13 @@ public sealed class UsageRemainingBrushConverter : IMultiValueConverter
 
     public static SolidColorBrush Select(double remaining, DashboardTheme theme)
     {
-        var normal = theme == DashboardTheme.Light ? NormalLight : NormalDark;
+        var normal = theme switch
+        {
+            DashboardTheme.Light => NormalLight,
+            DashboardTheme.Clay => NormalClay,
+            DashboardTheme.ClayDark => NormalClayDark,
+            _ => NormalDark,
+        };
         return remaining <= 10 ? Critical : remaining <= 25 ? Warning : normal;
     }
 

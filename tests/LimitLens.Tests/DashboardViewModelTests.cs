@@ -2,10 +2,12 @@ using LimitLens.App.Services;
 using LimitLens.App.ViewModels;
 using LimitLens.Core.Abstractions;
 using LimitLens.Core.Models;
+using LimitLens.Core.Services;
 using LimitLens.Core.Settings;
 
 namespace LimitLens.Tests;
 
+[Collection(WpfApplicationCollection.Name)]
 public sealed class DashboardViewModelTests
 {
     [Fact]
@@ -370,7 +372,134 @@ public sealed class DashboardViewModelTests
         Assert.Equal("43", model.CreditsText);
     }
 
-    private sealed class FakeAccountClient(AccountUsageSnapshot? snapshot = null) : ICodexAppServerClient
+    [Fact]
+    public void ShowsBothProvidersAndKeepsHistoryForEveryWindow()
+    {
+        var now = DateTimeOffset.Now;
+        var snapshot = AccountUsageSnapshot.Empty with
+        {
+            PlanType = "plus",
+            UpdatedAt = now,
+            RateLimits =
+            [
+                new("codex", Primary: new(90, 300, now.AddHours(2)), Secondary: new(30, 10_080, now.AddDays(3))),
+                new("claude", "Claude", Primary: new(40, 300, now.AddHours(1)), Secondary: new(70, 10_080, now.AddDays(2)),
+                    Provider: UsageProvider.Claude, UpdatedAt: now.AddMinutes(-3)),
+            ],
+        };
+        var settings = new DashboardSettings();
+        using var model = new DashboardViewModel(new FakeAccountClient(snapshot), new FakeIndexer(),
+            new FakeSettingsStore(settings), new FakeStartupService(), settings, "Data");
+
+        Assert.Equal("Codex", model.PrimaryLimitGroup.Name);
+        Assert.Equal("Claude", model.SecondaryLimitGroup?.Name);
+        Assert.Equal("60%", model.SecondaryLimitGroup?.FiveHour?.PercentageText);
+        Assert.Equal("30%", model.SecondaryLimitGroup?.Main.PercentageText);
+        Assert.Equal("Updated 3m ago", model.SecondaryLimitGroup?.Freshness);
+        Assert.True(model.TaskbarUsesProviderLabels);
+        Assert.Equal("Codex 5h", model.TaskbarPrimaryLimit.Label);
+        // The provider is named once when both slots share it.
+        Assert.Equal("Weekly", model.TaskbarSecondaryLimit.Label);
+        // Both slots share the width "Codex 5h" needs.
+        Assert.Equal(92, model.TaskbarSlotWidth);
+        Assert.Equal(216, model.TaskbarDualLogicalWidth);
+        Assert.Equal("Codex weekly usage trajectory", model.ForecastChartTitle);
+        Assert.Contains("Codex 5-hour: 10% remaining", model.TaskbarToolTip, StringComparison.Ordinal);
+        Assert.Equal(4, settings.UsageHistory.Select(sample => (sample.LimitId, sample.WindowDurationMinutes)).Distinct().Count());
+        Assert.Contains(settings.UsageHistory, sample => sample.LimitId == "claude" && sample.Timestamp == now.AddMinutes(-3));
+
+        model.SelectedForecastLimit = LimitKeys.ClaudeWeekly;
+        Assert.Equal("Claude weekly usage trajectory", model.ForecastChartTitle);
+        Assert.Equal(30, model.ForecastRemainingPercent);
+        Assert.All(model.ForecastActualPoints, sample => Assert.Equal("claude", sample.LimitId));
+        Assert.Equal(4, settings.UsageHistory.Select(sample => (sample.LimitId, sample.WindowDurationMinutes)).Distinct().Count());
+
+        model.SelectedForecastLimit = LimitKeys.None;
+        Assert.False(model.ShowForecastCard);
+        Assert.False(model.HasUsageData);
+
+        model.SelectedTaskbarPrimaryLimit = LimitKeys.ClaudeWeekly;
+        model.SelectedTaskbarSecondaryLimit = LimitKeys.None;
+        Assert.False(model.ShowDualLimitIndicators);
+        Assert.Equal("Claude weekly", model.TaskbarPrimaryLimit.Label);
+        Assert.Equal("30%", model.TaskbarPrimaryLimit.PercentageText);
+
+        model.SelectedFlyoutProviders = FlyoutProviderMode.Codex;
+        Assert.Null(model.SecondaryLimitGroup);
+        Assert.Equal("Codex", model.PrimaryLimitGroup.Name);
+        Assert.True(model.ShowResetCredits);
+        model.SelectedFlyoutProviders = FlyoutProviderMode.Claude;
+        Assert.Equal("Claude", model.PrimaryLimitGroup.Name);
+        Assert.False(model.ShowResetCredits);
+        Assert.Equal("Claude", model.PlanText);
+    }
+
+    [Fact]
+    public void ClaudeOnlyAccountsUseClaudeAutomatically()
+    {
+        var now = DateTimeOffset.Now;
+        var snapshot = AccountUsageSnapshot.Empty with
+        {
+            RateLimits =
+            [
+                new("claude", "Claude", Primary: new(25, 300, now.AddHours(1)), Secondary: new(55, 10_080, now.AddDays(2)),
+                    Provider: UsageProvider.Claude, UpdatedAt: now),
+            ],
+        };
+        var settings = new DashboardSettings();
+        using var model = new DashboardViewModel(new FakeAccountClient(snapshot), new FakeIndexer(),
+            new FakeSettingsStore(settings), new FakeStartupService(), settings, "Data");
+
+        Assert.False(model.TaskbarUsesProviderLabels);
+        Assert.True(model.ShowDualLimitIndicators);
+        Assert.Equal("5h", model.TaskbarPrimaryLimit.Label);
+        Assert.Equal("75%", model.TaskbarPrimaryLimit.PercentageText);
+        Assert.Equal("45%", model.TaskbarSecondaryLimit.PercentageText);
+        Assert.Equal("Claude", model.PrimaryLimitGroup.Name);
+        Assert.Null(model.SecondaryLimitGroup);
+        Assert.Equal("Claude", model.PlanShortText);
+        Assert.Equal(45, model.ForecastRemainingPercent);
+    }
+
+    [Fact]
+    public void ConnectsClaudeCodeAndRestoresThePreviousStatusLine()
+    {
+        using var folder = new TempFolder();
+        var installer = new LimitLens.Indexing.Claude.ClaudeCodeSettingsInstaller(folder.Path);
+        System.IO.File.WriteAllText(installer.SettingsPath, """{ "statusLine": { "type": "command", "command": "my-line" } }""");
+        var settings = new DashboardSettings();
+        using var model = new DashboardViewModel(new FakeAccountClient(), new FakeIndexer(), new FakeSettingsStore(settings),
+            new FakeStartupService(), settings, "Data", new ClaudeCodeConnection(installer, @"C:\LL\LimitLens.exe", () => true));
+
+        Assert.Equal("Connect", model.ClaudeConnectButtonText);
+        model.ToggleClaudeConnectionCommand.Execute(null);
+        Assert.True(model.IsClaudeConnected);
+        Assert.Equal("Disconnect", model.ClaudeConnectButtonText);
+        Assert.Contains("my-line", settings.ClaudePreviousStatusLine, StringComparison.Ordinal);
+
+        model.ToggleClaudeConnectionCommand.Execute(null);
+        Assert.False(model.IsClaudeConnected);
+        Assert.Null(settings.ClaudePreviousStatusLine);
+        Assert.Contains("\"my-line\"", System.IO.File.ReadAllText(installer.SettingsPath), StringComparison.Ordinal);
+    }
+
+    [Fact]
+    public void RefusesToConnectWhenClaudeCodeWouldUsePowerShell()
+    {
+        using var folder = new TempFolder();
+        var installer = new LimitLens.Indexing.Claude.ClaudeCodeSettingsInstaller(folder.Path);
+        var settings = new DashboardSettings();
+        using var model = new DashboardViewModel(new FakeAccountClient(), new FakeIndexer(), new FakeSettingsStore(settings),
+            new FakeStartupService(), settings, "Data", new ClaudeCodeConnection(installer, @"C:\LL\LimitLens.exe", () => false));
+
+        Assert.Contains("Git Bash", model.ClaudeConnectionText, StringComparison.Ordinal);
+        model.ToggleClaudeConnectionCommand.Execute(null);
+        Assert.False(model.IsClaudeConnected);
+        Assert.False(System.IO.File.Exists(installer.SettingsPath));
+        Assert.Contains("Git for Windows", model.ClaudeConnectionText, StringComparison.Ordinal);
+    }
+
+    private sealed class FakeAccountClient(AccountUsageSnapshot? snapshot = null) : IAccountUsageClient
     {
         public AccountUsageSnapshot Current { get; } = snapshot ?? AccountUsageSnapshot.Empty;
         public SourceHealth Health { get; } = SourceHealth.Starting("test");

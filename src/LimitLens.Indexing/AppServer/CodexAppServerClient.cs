@@ -10,7 +10,7 @@ using LimitLens.Indexing.Privacy;
 
 namespace LimitLens.Indexing.AppServer;
 
-public sealed class CodexAppServerClient(DashboardSettings settings) : ICodexAppServerClient
+public sealed class CodexAppServerClient(DashboardSettings settings) : IAccountUsageClient
 {
     private static readonly JsonSerializerOptions SerializerOptions = new(JsonSerializerDefaults.Web);
     private readonly CodexPathResolver pathResolver = new(settings);

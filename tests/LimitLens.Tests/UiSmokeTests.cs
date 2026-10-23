@@ -15,6 +15,7 @@ using LimitLens.Core.Settings;
 
 namespace LimitLens.Tests;
 
+[Collection(WpfApplicationCollection.Name)]
 public sealed class UiSmokeTests
 {
     [Theory]
@@ -238,8 +239,17 @@ public sealed class UiSmokeTests
                 Assert.True(backBottom <= window.Height, "The settings footer must remain visible.");
                 var settingsScroller = Assert.IsType<System.Windows.Controls.ScrollViewer>(window.FindName("SettingsScrollViewer"));
                 Assert.True(settingsScroller.ScrollableHeight > 0, "Additional settings must be scrollable.");
+                Assert.NotNull(window.FindName("ThemePicker"));
+                Assert.NotNull(window.FindName("TaskbarPrimaryLimitPicker"));
+                Assert.NotNull(window.FindName("TaskbarSecondaryLimitPicker"));
+                Assert.NotNull(window.FindName("ForecastLimitPicker"));
+                Assert.NotNull(window.FindName("FlyoutProvidersPicker"));
+                var claudeButton = Assert.IsType<System.Windows.Controls.Button>(window.FindName("ClaudeConnectButton"));
+                Assert.False(claudeButton.Command.CanExecute(null));
                 model.ShowWidgetSettings = false;
-                Assert.Equal(584, window.Height);
+                // The usage page fits its content instead of using the settings page height.
+                var emptyPlusHeight = window.Height;
+                Assert.InRange(emptyPlusHeight, 260, 584);
                 step = "taskbar indicator creation";
                 var taskbarIndicator = new TaskbarWidgetView { DataContext = model };
                 taskbarIndicator.ApplyTaskbarTheme(useDarkText: true);
@@ -280,6 +290,8 @@ public sealed class UiSmokeTests
                     $"Taskbar label overlaps percentage: label={titleText.DesiredSize.Width}, percent left={percentText.TranslatePoint(new Point(), taskbarIndicator).X}, label left={titleText.TranslatePoint(new Point(), taskbarIndicator).X}.");
                 CaptureIfRequested(taskbarIndicator, "taskbar-plus", 190, 44);
                 CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "flyout-plus", 420, 584);
+                var plusHeight = window.Height;
+                Assert.True(plusHeight > emptyPlusHeight, "The trajectory chart must add to the measured flyout height.");
 
                 // Reparenting/reloading must restore colour observation as well as value bindings.
                 taskbarIndicator.RaiseEvent(new RoutedEventArgs(FrameworkElement.UnloadedEvent));
@@ -348,9 +360,85 @@ public sealed class UiSmokeTests
                 Assert.Equal(Visibility.Collapsed, secondPanel.Visibility);
                 Assert.Equal("Weekly", titleText.Text);
                 Assert.Equal(67, usageBar.Value);
-                Assert.Equal(484, window.Height);
+                Assert.True(window.Height < plusHeight, $"Pro hides the five-hour bar, so the flyout must shrink: plus={plusHeight}, pro={window.Height}.");
                 CaptureIfRequested(taskbarIndicator, "taskbar-pro", 134, 44);
                 CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "flyout-pro", 420, 484);
+
+                step = "claude provider";
+                var proHeight = window.Height;
+                accountClient.Update(plusSnapshot with
+                {
+                    PlanType = "pro",
+                    RateLimits =
+                    [
+                        .. plusSnapshot.RateLimits,
+                        new("claude", "Claude", Primary: new(40, 300, now.AddHours(1)), Secondary: new(70, 10_080, now.AddDays(3)),
+                            Provider: UsageProvider.Claude, UpdatedAt: now),
+                    ],
+                });
+                UpdateBindings(window);
+                UpdateBindings(taskbarIndicator);
+                Assert.True(model.ShowSecondaryLimitGroup);
+                Assert.Equal(Visibility.Visible, Assert.IsType<System.Windows.Controls.Border>(window.FindName("SecondaryLimitGroupCard")).Visibility);
+                Assert.Equal("Claude", Assert.IsType<System.Windows.Controls.TextBlock>(window.FindName("SecondaryGroupName")).Text);
+                Assert.Equal(Visibility.Visible, Assert.IsType<System.Windows.Controls.TextBlock>(window.FindName("PrimaryGroupName")).Visibility);
+                Assert.True(window.Height > proHeight, "A second provider group must grow the flyout.");
+                model.SelectedTaskbarPrimaryLimit = "claude:5h";
+                model.SelectedTaskbarSecondaryLimit = "codex:weekly";
+                UpdateBindings(taskbarIndicator);
+                Assert.Equal("Claude 5h", titleText.Text);
+                Assert.Equal("Codex weekly", Assert.IsType<System.Windows.Controls.TextBlock>(taskbarIndicator.FindName("SecondaryTitleText")).Text);
+                Assert.Equal(60, usageBar.Value);
+                Assert.Equal(108, secondPanel.Width);
+                Assert.Equal(248, model.TaskbarDualLogicalWidth);
+                _ = RenderElement(taskbarIndicator, 248, 44);
+                var secondaryTitle = Assert.IsType<System.Windows.Controls.TextBlock>(taskbarIndicator.FindName("SecondaryTitleText"));
+                var secondaryPercent = Assert.IsType<System.Windows.Controls.TextBlock>(taskbarIndicator.FindName("SecondaryPercentText"));
+                Assert.True(
+                    secondaryTitle.TranslatePoint(new Point(secondaryTitle.DesiredSize.Width, 0), taskbarIndicator).X <=
+                    secondaryPercent.TranslatePoint(new Point(), taskbarIndicator).X,
+                    "\"Codex weekly\" must not overlap its percentage.");
+                Assert.True(
+                    titleText.TranslatePoint(new Point(titleText.DesiredSize.Width, 0), taskbarIndicator).X <=
+                    percentText.TranslatePoint(new Point(), taskbarIndicator).X,
+                    "\"Claude 5h\" must not overlap its percentage.");
+                CaptureIfRequested(taskbarIndicator, "taskbar-providers", 248, 44);
+                model.SelectedTaskbarSecondaryLimit = "claude:weekly";
+                UpdateBindings(taskbarIndicator);
+                Assert.Equal("Weekly", secondaryTitle.Text);
+                Assert.Equal(92, secondPanel.Width);
+                Assert.Equal(216, model.TaskbarDualLogicalWidth);
+                CaptureIfRequested(taskbarIndicator, "taskbar-same-provider", model.TaskbarDualLogicalWidth, 44);
+                model.SelectedTaskbarSecondaryLimit = "codex:weekly";
+                model.SelectedTheme = DashboardTheme.Clay;
+                UpdateBindings(window);
+                Assert.Equal(Color.FromRgb(0x14, 0x14, 0x13), Assert.IsType<SolidColorBrush>(window.Resources["FlyoutText"]).Color);
+                Assert.Equal(Color.FromRgb(0xD9, 0x77, 0x57), Assert.IsType<SolidColorBrush>(window.Resources["FlyoutBlue"]).Color);
+                Assert.Contains("Georgia", Assert.IsType<FontFamily>(window.Resources["FlyoutTitleFont"]).Source, StringComparison.Ordinal);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "flyout-clay", 420, (int)window.Height);
+                model.SelectedTheme = DashboardTheme.ClayDark;
+                UpdateBindings(window);
+                Assert.Equal(Color.FromRgb(0xFA, 0xF9, 0xF5), Assert.IsType<SolidColorBrush>(window.Resources["FlyoutText"]).Color);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "flyout-clay-dark", 420, (int)window.Height);
+                model.ShowWidgetSettings = true;
+                UpdateBindings(window);
+                CaptureIfRequested(Assert.IsAssignableFrom<FrameworkElement>(window.Content), "settings-clay-dark", 420, 584);
+                model.ShowWidgetSettings = false;
+                model.SelectedTheme = DashboardTheme.Light;
+                var withGraphHeight = window.Height;
+                model.SelectedForecastLimit = "none";
+                UpdateBindings(window);
+                Assert.Equal(Visibility.Collapsed, Assert.IsType<System.Windows.Controls.Border>(window.FindName("ForecastCard")).Visibility);
+                Assert.True(window.Height < withGraphHeight, "Hiding the prediction graph must shrink the flyout.");
+                model.SelectedFlyoutProviders = FlyoutProviderMode.Claude;
+                UpdateBindings(window);
+                Assert.False(model.ShowSecondaryLimitGroup);
+                Assert.False(model.ShowResetCredits);
+                Assert.Equal("Claude", model.PlanShortText);
+                model.SelectedFlyoutProviders = FlyoutProviderMode.Automatic;
+                model.SelectedForecastLimit = "auto";
+                model.SelectedTaskbarPrimaryLimit = "auto";
+                model.SelectedTaskbarSecondaryLimit = "auto";
 
                 accountClient.Update(AccountUsageSnapshot.Empty);
                 UpdateBindings(taskbarIndicator);
@@ -431,7 +519,7 @@ public sealed class UiSmokeTests
         }
     }
 
-    private sealed class FakeAccountClient(AccountUsageSnapshot? snapshot = null) : ICodexAppServerClient
+    private sealed class FakeAccountClient(AccountUsageSnapshot? snapshot = null) : IAccountUsageClient
     {
         public AccountUsageSnapshot Current { get; private set; } = snapshot ?? AccountUsageSnapshot.Empty;
         public SourceHealth Health { get; } = SourceHealth.Starting("test");

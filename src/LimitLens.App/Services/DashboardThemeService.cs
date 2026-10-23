@@ -18,7 +18,7 @@ public static class DashboardThemeService
             {
                 var themeName = selectedTheme switch
                 {
-                    DashboardTheme.Light => "Light",
+                    DashboardTheme.Light or DashboardTheme.Clay => "Light",
                     DashboardTheme.System => "System",
                     _ => "Dark",
                 };
@@ -35,12 +35,27 @@ public static class DashboardThemeService
             }
 
             ApplyPalette(application.Resources, useLight);
+            if (selectedTheme is DashboardTheme.Clay or DashboardTheme.ClayDark)
+            {
+                ApplyClayAccents(application.Resources, useLight);
+            }
         }
     }
 
     public static bool UsesLightPalette(DashboardTheme selectedTheme) =>
-        selectedTheme == DashboardTheme.Light ||
+        selectedTheme is DashboardTheme.Light or DashboardTheme.Clay ||
         selectedTheme == DashboardTheme.System && SystemPrefersLight();
+
+    private static void ApplyClayAccents(ResourceDictionary resources, bool light)
+    {
+        SetBrush(resources, "WindowBrush", light ? "#FFF0EEE6" : "#FF1F1E1D");
+        SetBrush(resources, "TitleBarBrush", light ? "#FFF0EEE6" : "#FF1F1E1D");
+        SetBrush(resources, "PanelBrush", light ? "#FFFAF9F5" : "#FF30302E");
+        SetBrush(resources, "TextBrush", light ? "#FF141413" : "#FFFAF9F5");
+        SetBrush(resources, "MutedTextBrush", light ? "#FF5E5D59" : "#FFC2C0B6");
+        SetBrush(resources, "AccentBrush", "#FFD97757");
+        SetBrush(resources, "AccentSoftBrush", light ? "#FFF5E3DA" : "#FF4A3229");
+    }
 
     private static bool SystemPrefersLight()
     {

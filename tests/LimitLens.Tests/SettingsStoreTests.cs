@@ -45,6 +45,58 @@ public sealed class SettingsStoreTests
         Assert.Equal("#FFFFFF", loaded.TaskbarCustomBarColor);
     }
 
+    [Fact]
+    public async Task PersistsDisplayChoicesAndRepairsUnknownLimitKeys()
+    {
+        using var folder = new TempFolder();
+        var paths = new AppStoragePaths(folder.Path, folder.GetPath("usage.db"), folder.GetPath("settings.json"), true);
+        await new JsonSettingsStore(paths).SaveAsync(new DashboardSettings
+        {
+            TaskbarPrimaryLimit = "claude:5h",
+            TaskbarSecondaryLimit = "none",
+            ForecastLimit = "claude:weekly",
+            FlyoutProviders = FlyoutProviderMode.Both,
+            Theme = DashboardTheme.ClayDark,
+        });
+        var loaded = await new JsonSettingsStore(paths).LoadAsync();
+        Assert.Equal("claude:5h", loaded.TaskbarPrimaryLimit);
+        Assert.Equal("none", loaded.TaskbarSecondaryLimit);
+        Assert.Equal("claude:weekly", loaded.ForecastLimit);
+        Assert.Equal(FlyoutProviderMode.Both, loaded.FlyoutProviders);
+        Assert.Equal(DashboardTheme.ClayDark, loaded.Theme);
+
+        await new JsonSettingsStore(paths).SaveAsync(new DashboardSettings
+        {
+            // The first slot cannot be empty.
+            TaskbarPrimaryLimit = "none",
+            TaskbarSecondaryLimit = "gemini:5h",
+            ForecastLimit = null!,
+            FlyoutProviders = (FlyoutProviderMode)42,
+            Theme = (DashboardTheme)42,
+        });
+        loaded = await new JsonSettingsStore(paths).LoadAsync();
+        Assert.Equal("auto", loaded.TaskbarPrimaryLimit);
+        Assert.Equal("auto", loaded.TaskbarSecondaryLimit);
+        Assert.Equal("auto", loaded.ForecastLimit);
+        Assert.Equal(FlyoutProviderMode.Automatic, loaded.FlyoutProviders);
+        Assert.Equal(DashboardTheme.DarkGlass, loaded.Theme);
+    }
+
+    [Fact]
+    public async Task UpgradesSchemaTenWithoutChangingTheExistingLayout()
+    {
+        using var folder = new TempFolder();
+        var paths = new AppStoragePaths(folder.Path, folder.GetPath("usage.db"), folder.GetPath("settings.json"), true);
+        await File.WriteAllTextAsync(paths.SettingsPath, """{ "schemaVersion": 10, "theme": "Light" }""");
+        var loaded = await new JsonSettingsStore(paths).LoadAsync();
+        Assert.Equal(DashboardSettings.CurrentSchemaVersion, loaded.SchemaVersion);
+        Assert.Equal(DashboardTheme.Light, loaded.Theme);
+        Assert.Equal("auto", loaded.TaskbarPrimaryLimit);
+        Assert.Equal("auto", loaded.TaskbarSecondaryLimit);
+        Assert.Equal("auto", loaded.ForecastLimit);
+        Assert.Equal(FlyoutProviderMode.Automatic, loaded.FlyoutProviders);
+    }
+
     [Theory]
     [InlineData(-5, 0)]
     [InlineData(37, 37)]

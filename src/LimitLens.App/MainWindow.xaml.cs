@@ -14,6 +14,9 @@ namespace LimitLens.App;
 public partial class MainWindow : Window
 {
     private const double FlyoutMargin = 8;
+    private const double FlyoutWidth = 420;
+    private const double SettingsPageHeight = 584;
+    private const double MinimumFlyoutHeight = 260;
     private const uint SwpNoActivate = 0x0010;
     private const uint SwpNoZOrder = 0x0004;
     private readonly DashboardViewModel viewModel;
@@ -62,11 +65,8 @@ public partial class MainWindow : Window
             }
         };
         viewModel.AppearanceChanged += OnAppearanceChanged;
-        viewModel.WidgetBehaviorChanged += UpdateFlyoutHeight;
-        viewModel.PropertyChanged += (_, args) =>
-        {
-            if (args.PropertyName == nameof(DashboardViewModel.ShowDualLimitIndicators)) UpdateFlyoutHeight();
-        };
+        viewModel.WidgetBehaviorChanged += OnWidgetBehaviorChanged;
+        viewModel.FlyoutLayoutChanged += UpdateFlyoutHeight;
     }
 
     public void ShowDashboard(Rect? anchor = null, string? page = null)
@@ -86,7 +86,7 @@ public partial class MainWindow : Window
 
     private void OnLoaded(object sender, RoutedEventArgs args)
     {
-        Width = MinWidth = MaxWidth = 420;
+        Width = MinWidth = MaxWidth = FlyoutWidth;
         UpdateFlyoutHeight();
         ApplyAppearance();
         PositionAtTaskbar();
@@ -152,8 +152,7 @@ public partial class MainWindow : Window
 
     private void ApplyAppearance()
     {
-        var light = DashboardThemeService.UsesLightPalette(viewModel.SelectedTheme);
-        ApplyFlyoutPalette(light);
+        ApplyFlyoutPalette(FlyoutPalette.For(viewModel.SelectedTheme, DashboardThemeService.UsesLightPalette(viewModel.SelectedTheme)));
         ApplyNativeAppearance();
     }
 
@@ -185,24 +184,14 @@ public partial class MainWindow : Window
         }
     }
 
-    private void ApplyFlyoutPalette(bool light)
+    private void ApplyFlyoutPalette(FlyoutPalette palette)
     {
-        SetFlyoutBrush("FlyoutSurface", light ? "#A4F3F4F5" : "#A41A1D22");
-        SetFlyoutBrush("FlyoutLayer", light ? "#64FFFFFF" : "#6439434C");
-        SetFlyoutBrush("FlyoutLayerStrong", light ? "#7CFFFFFF" : "#7C3D4750");
-        SetFlyoutBrush("FlyoutInsight", light ? "#80FFFFFF" : "#80282C33");
-        SetFlyoutBrush("FlyoutBorder", light ? "#18000000" : "#18FFFFFF");
-        SetFlyoutBrush("FlyoutDivider", light ? "#12000000" : "#12FFFFFF");
-        SetFlyoutBrush("FlyoutText", light ? "#FF252932" : "#FFF4F5F7");
-        SetFlyoutBrush("FlyoutMuted", light ? "#FF58616E" : "#FFB2B8C2");
-        SetFlyoutBrush("FlyoutDim", light ? "#FF697380" : "#FF9299A5");
-        SetFlyoutBrush("FlyoutBlue", light ? "#FF3478DF" : "#FF68A4FF");
-        SetFlyoutBrush("FlyoutPrediction", light ? "#FF7457C8" : "#FFB18CFF");
-        SetFlyoutBrush("FlyoutTarget", light ? "#FF7F8792" : "#FF737C89");
-        SetFlyoutBrush("FlyoutGrid", light ? "#14000000" : "#14FFFFFF");
-        SetFlyoutBrush("FlyoutTrack", light ? "#26000000" : "#26FFFFFF");
-        SetFlyoutBrush("FlyoutHover", light ? "#14000000" : "#14FFFFFF");
-        SetFlyoutBrush("FlyoutPressed", light ? "#20000000" : "#20FFFFFF");
+        foreach (var (key, color) in palette.Brushes)
+        {
+            SetFlyoutBrush(key, color);
+        }
+
+        Resources["FlyoutTitleFont"] = new System.Windows.Media.FontFamily(palette.TitleFont);
         Resources["FlyoutCardBorderThickness"] = new Thickness(0);
     }
 
@@ -210,13 +199,36 @@ public partial class MainWindow : Window
         Resources[key] = new SolidColorBrush(
             (System.Windows.Media.Color)System.Windows.Media.ColorConverter.ConvertFromString(value));
 
-    private void UpdateFlyoutHeight()
+    private void UpdateFlyoutHeight() => UpdateFlyoutHeight(forceReposition: false);
+
+    private void OnWidgetBehaviorChanged() => UpdateFlyoutHeight(forceReposition: true);
+
+    private void UpdateFlyoutHeight(bool forceReposition)
     {
-        var height = viewModel.ShowWidgetSettings
-            ? 584
-            : viewModel.ShowDualLimitIndicators ? 584 : 484;
-        Height = MinHeight = MaxHeight = height;
-        if (IsVisible) PositionAtTaskbar();
+        // The usage page fits its content, which varies with the provider groups and the graph;
+        // the settings page keeps a fixed height and scrolls.
+        double height = SettingsPageHeight;
+        if (!viewModel.ShowWidgetSettings)
+        {
+            // Visibility changes are queued for the next layout pass; flush them so the measure is current.
+            FlyoutRoot.UpdateLayout();
+            FlyoutRoot.Measure(new System.Windows.Size(FlyoutWidth, double.PositiveInfinity));
+            height = Math.Ceiling(FlyoutRoot.DesiredSize.Height);
+        }
+
+        var maximum = SystemParameters.WorkArea.Height - 2 * FlyoutMargin;
+        height = Math.Clamp(height, MinimumFlyoutHeight, Math.Max(MinimumFlyoutHeight, maximum));
+        var resized = Math.Abs(Height - height) >= 0.5 || Math.Abs(MaxHeight - height) >= 0.5;
+        if (resized)
+        {
+            MinHeight = 0;
+            MaxHeight = double.PositiveInfinity;
+            Height = height;
+            MinHeight = MaxHeight = height;
+        }
+
+        // Settings changes (such as the flyout position) move the flyout even when its height is unchanged.
+        if (IsVisible && (resized || forceReposition)) PositionAtTaskbar();
     }
 
     private void OnClosing(object? sender, CancelEventArgs args)

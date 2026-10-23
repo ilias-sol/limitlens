@@ -30,6 +30,12 @@ public sealed record SpendControlSnapshot(
     int RemainingPercent,
     DateTimeOffset ResetsAt);
 
+public enum UsageProvider
+{
+    Codex,
+    Claude,
+}
+
 public sealed record RateLimitBucket(
     string Id,
     string? Name = null,
@@ -40,10 +46,14 @@ public sealed record RateLimitBucket(
     SpendControlSnapshot? IndividualLimit = null,
     bool? SpendControlReached = null,
     string? RateLimitReachedType = null,
-    IReadOnlyDictionary<string, JsonElement>? Extensions = null)
+    IReadOnlyDictionary<string, JsonElement>? Extensions = null,
+    UsageProvider Provider = UsageProvider.Codex,
+    // Set when the bucket was captured at a different time from the snapshot that carries it.
+    DateTimeOffset? UpdatedAt = null)
 {
     public RateLimitBucket MergeSparse(RateLimitBucket update) => this with
     {
+        UpdatedAt = update.UpdatedAt ?? UpdatedAt,
         Name = update.Name ?? Name,
         PlanType = update.PlanType ?? PlanType,
         Primary = update.Primary ?? Primary,

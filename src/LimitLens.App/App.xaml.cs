@@ -6,8 +6,10 @@ using LimitLens.App.Services;
 using LimitLens.App.Taskbar;
 using LimitLens.App.ViewModels;
 using LimitLens.Core.Abstractions;
+using LimitLens.Core.Services;
 using LimitLens.Core.Settings;
 using LimitLens.Indexing.AppServer;
+using LimitLens.Indexing.Claude;
 using LimitLens.Indexing.Indexing;
 using LimitLens.Indexing.Storage;
 using WpfMessageBox = System.Windows.MessageBox;
@@ -21,7 +23,8 @@ public partial class App : System.Windows.Application
     private AppStoragePaths? storagePaths;
     private ISettingsStore? settingsStore;
     private IUsageRepository? repository;
-    private ICodexAppServerClient? accountClient;
+    private IAccountUsageClient? accountClient;
+    private ClaudeCodeSettingsInstaller? claudeInstaller;
     private ISessionLogIndexer? sessionIndexer;
     private DashboardViewModel? viewModel;
     private MainWindow? dashboardWindow;
@@ -94,7 +97,10 @@ public partial class App : System.Windows.Application
 
                 repository = new SqliteUsageRepository(storagePaths);
                 sessionIndexer = new SessionLogIndexer(repository, settings);
-                accountClient = new CodexAppServerClient(settings);
+                accountClient = new CompositeAccountClient(
+                    new CodexAppServerClient(settings),
+                    new ClaudeStatusLineClient(storagePaths.ClaudeUsagePath));
+                claudeInstaller = new ClaudeCodeSettingsInstaller(ClaudeCodeSettingsInstaller.DefaultConfigDirectory());
                 dataLocation = storagePaths.RootDirectory;
             }
 
@@ -104,7 +110,10 @@ public partial class App : System.Windows.Application
                 settingsStore,
                 startupService,
                 settings,
-                dataLocation);
+                dataLocation,
+                claudeInstaller is null ? null : new ClaudeCodeConnection(claudeInstaller, Environment.ProcessPath));
+            // Fluent controls (combo boxes, sliders, text boxes) follow the application theme, not the flyout palette.
+            viewModel.AppearanceChanged += () => DashboardThemeService.Apply(viewModel.SelectedTheme);
             dashboardWindow = new MainWindow(viewModel);
             MainWindow = dashboardWindow;
 
@@ -196,7 +205,7 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private async Task StartAccountSourceAsync(ICodexAppServerClient client, CancellationToken cancellationToken)
+    private async Task StartAccountSourceAsync(IAccountUsageClient client, CancellationToken cancellationToken)
     {
         try
         {

@@ -14,7 +14,6 @@ namespace LimitLens.App.Taskbar;
 public sealed class TaskbarWidgetService : IDisposable
 {
     private const int SingleLogicalWidth = 134;
-    private const int DualLogicalWidth = 190;
     private const int LogicalClearance = 5;
     private const int LogicalVerticalInset = 2;
     private const int WsPopup = unchecked((int)0x80000000);
@@ -36,7 +35,8 @@ public sealed class TaskbarWidgetService : IDisposable
     private IntPtr taskbar;
     private IntPtr tray;
     private bool disposed;
-    private int LogicalWidth => viewModel.ShowDualLimitIndicators ? DualLogicalWidth : SingleLogicalWidth;
+    // Two slots grow with provider-named labels; without them this is the original 190.
+    private int LogicalWidth => viewModel.ShowDualLimitIndicators ? viewModel.TaskbarDualLogicalWidth : SingleLogicalWidth;
 
     public TaskbarWidgetService(DashboardViewModel viewModel)
     {
@@ -206,6 +206,7 @@ public sealed class TaskbarWidgetService : IDisposable
     private void OnViewModelPropertyChanged(object? sender, System.ComponentModel.PropertyChangedEventArgs args)
     {
         if (args.PropertyName is nameof(DashboardViewModel.ShowDualLimitIndicators)
+            or nameof(DashboardViewModel.TaskbarDualLogicalWidth)
             or nameof(DashboardViewModel.TaskbarPositionPercent)) EnsureAttached();
     }
 

@@ -1,15 +1,17 @@
 # Privacy
 
 Limit Lens is a local dashboard. Limit Lens does not operate a telemetry
-service and does not upload your Codex history.
+service and does not upload your Codex or Claude history.
 
 ## Inputs
 
-The application uses two read-only sources:
+The application uses three sources:
 
 1. `codex app-server` for supported account usage and rate-limit snapshots.
 2. JSONL records under the selected Codex home `sessions` and
    `archived_sessions` folders.
+3. The Claude Code status-line input, only after you select Connect in
+   Settings (see [Claude Code](#claude-code)).
 
 The JSONL reader necessarily reads each completed record into memory. The
 parser extracts only the metadata described below and discards the record. It
@@ -18,6 +20,25 @@ text, tool arguments, or workspace file contents.
 
 Session files are opened with shared read/delete access. Limit Lens tolerates
 partial lines and never modifies the Codex home directory.
+
+## Claude Code
+
+Claude Code passes JSON about the current session to its status-line command.
+When connected, that command is `LimitLens.exe --claude-statusline`. It keeps
+only the 5-hour and 7-day rate-limit windows (used percentage and reset time)
+and the time they were captured, written to `claude-usage.json` in the Limit
+Lens data folder. The session id, working directory, model, transcript path,
+costs, and every other field are discarded without being stored.
+
+Limit Lens never reads Claude credentials and never calls Anthropic services.
+
+Connect and Disconnect are the only actions that change Claude Code
+configuration. They edit only the `statusLine` entry of
+`%USERPROFILE%\.claude\settings.json` (or `%CLAUDE_CONFIG_DIR%`), keep every
+other setting, and save `settings.json.limitlens-backup` before each edit.
+Comments in that file are not preserved. If you already had a status line,
+Limit Lens runs it after recording the limits and shows its output unchanged;
+its command is kept in the Limit Lens settings so Disconnect can restore it.
 
 ## Retained locally
 
@@ -43,8 +64,9 @@ The JSON settings file can retain:
 - appearance (including taskbar position and text/bar colour choices), startup,
   card, and alert preferences;
 - rate-limit usage history (timestamp, remaining percentage, reset timestamp,
-  quota-window duration, and metered bucket identifier) and alert deduplication
-  state; and
+  quota-window duration, and metered bucket identifier) for Codex and Claude,
+  and alert deduplication state;
+- the Claude Code status line that Limit Lens replaced, if any; and
 - the random salt used for pseudonymous project identifiers.
 
 Installed mode stores the database and settings under
@@ -64,7 +86,7 @@ Limit Lens does not extract or retain:
 - tool arguments;
 - workspace file contents;
 - full project paths from session records;
-- `auth.json`; or
+- `auth.json` or Claude credentials; or
 - Codex-owned SQLite databases.
 
 The app-server child process is started directly without a shell. Limit Lens

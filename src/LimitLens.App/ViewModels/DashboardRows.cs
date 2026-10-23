@@ -1,3 +1,6 @@
+using LimitLens.Core.Settings;
+using Brush = System.Windows.Media.Brush;
+
 namespace LimitLens.App.ViewModels;
 
 public sealed record UsageIndicatorViewModel(string Label, int? RemainingPercent, string ResetText)
@@ -6,6 +9,23 @@ public sealed record UsageIndicatorViewModel(string Label, int? RemainingPercent
     public double ProgressValue => RemainingPercent ?? 0;
     public bool IsAvailable => RemainingPercent is not null;
 }
+
+/// <summary>One provider's bars in the flyout: an optional five-hour bar above its main bar.</summary>
+public sealed record LimitGroupViewModel(
+    string Name,
+    string Freshness,
+    UsageIndicatorViewModel? FiveHour,
+    Brush FiveHourBrush,
+    string MainTitle,
+    UsageIndicatorViewModel Main,
+    Brush MainBrush)
+{
+    public bool ShowFiveHour => FiveHour is not null;
+}
+
+public sealed record LimitOption(string Key, string Name);
+
+public sealed record FlyoutProviderOption(FlyoutProviderMode Mode, string Name);
 
 public sealed record LimitRowViewModel(
     string Id,

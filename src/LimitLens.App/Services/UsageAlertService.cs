@@ -7,7 +7,7 @@ namespace LimitLens.App.Services;
 
 public sealed class UsageAlertService : IDisposable
 {
-    private readonly ICodexAppServerClient accountClient;
+    private readonly IAccountUsageClient accountClient;
     private readonly ISettingsStore settingsStore;
     private readonly DashboardSettings settings;
     private readonly IAppNotificationSink notifications;
@@ -15,7 +15,7 @@ public sealed class UsageAlertService : IDisposable
     private bool disposed;
 
     public UsageAlertService(
-        ICodexAppServerClient accountClient,
+        IAccountUsageClient accountClient,
         ISettingsStore settingsStore,
         DashboardSettings settings,
         IAppNotificationSink notifications)

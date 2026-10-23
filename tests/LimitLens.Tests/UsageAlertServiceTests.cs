@@ -32,6 +32,28 @@ public sealed class UsageAlertServiceTests
     }
 
     [Fact]
+    public async Task AlertsForClaudeWindowsSeparatelyFromCodex()
+    {
+        var settings = new DashboardSettings { AlertThresholds = [10] };
+        var sink = new FakeNotificationSink();
+        using var service = new UsageAlertService(new FakeAccountClient(), new FakeSettingsStore(settings), settings, sink);
+        var reset = DateTimeOffset.UtcNow.AddHours(2);
+        var snapshot = AccountUsageSnapshot.Empty with
+        {
+            RateLimits =
+            [
+                new RateLimitBucket("codex", "Codex", Primary: new RateLimitWindow(95, 300, reset)),
+                new RateLimitBucket("claude", "Claude", Primary: new RateLimitWindow(95, 300, reset), Provider: UsageProvider.Claude),
+            ],
+        };
+
+        await service.EvaluateAsync(snapshot);
+
+        Assert.Equal(2, sink.Messages.Count);
+        Assert.Contains(sink.Messages, message => message.Message.StartsWith("Claude has 5% remaining", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public async Task RespectsMuteUntilReset()
     {
         var settings = new DashboardSettings
@@ -71,7 +93,7 @@ public sealed class UsageAlertServiceTests
         }
     }
 
-    private sealed class FakeAccountClient : ICodexAppServerClient
+    private sealed class FakeAccountClient : IAccountUsageClient
     {
         public AccountUsageSnapshot Current { get; } = AccountUsageSnapshot.Empty;
         public SourceHealth Health { get; } = SourceHealth.Starting("test");

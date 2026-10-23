@@ -4,7 +4,7 @@ using LimitLens.Core.Settings;
 
 namespace LimitLens.App.Services;
 
-public sealed class ShowcaseAccountClient : ICodexAppServerClient
+public sealed class ShowcaseAccountClient : IAccountUsageClient
 {
     public ShowcaseAccountClient(DateTimeOffset now)
     {
@@ -28,13 +28,22 @@ public sealed class ShowcaseAccountClient : ICodexAppServerClient
             "plus",
             new AccountUsageSummary(),
             [],
-            [new RateLimitBucket(
-                "codex",
-                "Codex",
-                "plus",
-                new RateLimitWindow(24, 300, now.AddHours(3)),
-                new RateLimitWindow(33, 7 * 24 * 60, reset),
-                Credits: new CreditsSnapshot(true, false, "1484.37"))],
+            [
+                new RateLimitBucket(
+                    "codex",
+                    "Codex",
+                    "plus",
+                    new RateLimitWindow(24, 300, now.AddHours(3)),
+                    new RateLimitWindow(33, 7 * 24 * 60, reset),
+                    Credits: new CreditsSnapshot(true, false, "1484.37")),
+                new RateLimitBucket(
+                    "claude",
+                    "Claude",
+                    Primary: new RateLimitWindow(41, 300, now.AddHours(2).AddMinutes(10)),
+                    Secondary: new RateLimitWindow(58, 7 * 24 * 60, now.AddDays(2).AddHours(5)),
+                    Provider: UsageProvider.Claude,
+                    UpdatedAt: now),
+            ],
             new ResetCreditSummary(2),
             now);
         Health = new SourceHealth(SourceConnectionState.Connected, "Showcase data", now);
