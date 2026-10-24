@@ -34,11 +34,14 @@ public sealed class TrayMenuWindowTests
                 failure = exception;
             }
         });
+        thread.IsBackground = true;
         thread.SetApartmentState(ApartmentState.STA);
 
         thread.Start();
 
-        Assert.True(thread.Join(TimeSpan.FromSeconds(5)), "The tray-menu shutdown test did not finish.");
+        // The first WPF window in the test run pays for loading WPF and the Fluent theme, which
+        // can take several seconds on a cold CI runner; the timeout only needs to catch a hang.
+        Assert.True(thread.Join(TimeSpan.FromSeconds(30)), "The tray-menu shutdown test did not finish.");
         Assert.Null(failure);
     }
 }
